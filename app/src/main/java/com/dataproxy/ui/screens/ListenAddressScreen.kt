@@ -1,5 +1,6 @@
 package com.dataproxy.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,6 +66,7 @@ fun ListenAddressScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
 ) {
+    BackHandler(onBack = onBack)
     val candidates by viewModel.interfaces.collectAsStateWithLifecycle()
     val bindAddress by viewModel.bindAddress.collectAsStateWithLifecycle()
     val port by viewModel.port.collectAsStateWithLifecycle()

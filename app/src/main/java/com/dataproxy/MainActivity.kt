@@ -2,6 +2,7 @@ package com.dataproxy
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -10,13 +11,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.screens.AppNav
@@ -24,7 +26,6 @@ import com.dataproxy.ui.screens.Tab
 import com.dataproxy.ui.theme.DataProxyTheme
 import com.dataproxy.ui.viewmodel.MainViewModel
 import com.dataproxy.util.BatteryOptimizationHelper
-import com.dataproxy.util.CellularAvailability
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -32,52 +33,56 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    /** True while walking through the system perm prompts triggered by the dialog. */
+    private var awaitingPermsChain = false
+
     private val notifPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { /* no-op; service still runs without it */ }
+    ) { /* grant or deny — either way, continue the chain */
+        if (awaitingPermsChain) continuePermsChain()
+    }
 
     private val batteryOptResult = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { /* state is re-read each onResume */ }
-
-    private var pendingStart by mutableStateOf(false)
+    ) {
+        if (awaitingPermsChain) continuePermsChain()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
         viewModel.refreshInterfaces()
 
         setContent {
             DataProxyTheme {
-                var battOk by remember { mutableStateOf(BatteryOptimizationHelper.isIgnoring(this)) }
-                var showBattDialog by rememberSaveable { mutableStateOf(false) }
-                var showMobileDataDialog by remember { mutableStateOf(false) }
                 var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+                var showPermsDialog by remember { mutableStateOf(false) }
+                var showMobileDataDialog by remember { mutableStateOf(false) }
 
-                // Re-check battery opt periodically — user may change it while we're foregrounded.
+                // Recompute perm flags periodically so the dialog reflects truth
+                // after the user comes back from system settings.
+                var needNotif by remember { mutableStateOf(needsNotifPermission()) }
+                var needBatt by remember {
+                    mutableStateOf(!BatteryOptimizationHelper.isIgnoring(this))
+                }
                 LaunchedEffect(Unit) {
                     while (true) {
-                        val before = battOk
-                        battOk = BatteryOptimizationHelper.isIgnoring(this@MainActivity)
-                        // Prompt once per launch if still not granted (give user 2s to see UI).
-                        if (!battOk && !showBattDialog && before == battOk) {
-                            // first-tick: only prompt once
-                        }
-                        delay(2000)
+                        needNotif = needsNotifPermission()
+                        needBatt = !BatteryOptimizationHelper.isIgnoring(this@MainActivity)
+                        delay(1500)
                     }
                 }
-                // Show the battery prompt 1s after the UI lands on first launch.
-                LaunchedEffect(battOk) {
-                    if (!battOk) {
-                        delay(800)
-                        if (!BatteryOptimizationHelper.isIgnoring(this@MainActivity)) {
-                            showBattDialog = true
-                        }
+
+                // Surface mobile-data dialog when the service hits the matching
+                // error kind. One-shot per error transition.
+                val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
+                LaunchedEffect(serviceState) {
+                    val s = serviceState
+                    if (s is ProxyService.State.Error &&
+                        s.kind == ProxyService.State.ErrorKind.MobileDataUnavailable
+                    ) {
+                        showMobileDataDialog = true
                     }
                 }
 
@@ -85,15 +90,17 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     tab = tab,
                     onTabChange = { tab = it },
-                    onToggle = { onPowerToggle { showMobileDataDialog = true } },
-                    showBattDialog = showBattDialog,
-                    onDismissBattDialog = { showBattDialog = false },
-                    onAllowBatt = {
-                        showBattDialog = false
-                        requestDisableBatteryOptimization()
+                    onToggle = { onPowerToggle { showPermsDialog = true } },
+                    showPermsDialog = showPermsDialog,
+                    needNotif = needNotif,
+                    needBatt = needBatt,
+                    onDismissPermsDialog = { showPermsDialog = false },
+                    onAllowPerms = {
+                        showPermsDialog = false
+                        startPermsChain()
                     },
                     showMobileDataDialog = showMobileDataDialog,
-                    onDismissMobileDataDialog = { showMobileDataDialog = false; pendingStart = false },
+                    onDismissMobileDataDialog = { showMobileDataDialog = false },
                     onOpenMobileDataSettings = {
                         showMobileDataDialog = false
                         openMobileDataSettings()
@@ -108,21 +115,16 @@ class MainActivity : ComponentActivity() {
         viewModel.bind()
     }
 
-    override fun onResume() {
-        super.onResume()
-        // User may have just enabled data via the settings shortcut.
-        if (pendingStart && CellularAvailability.isReachable(this)) {
-            pendingStart = false
-            actuallyStart()
-        }
-    }
-
     override fun onStop() {
         super.onStop()
         viewModel.unbind()
     }
 
-    private fun onPowerToggle(onMobileDataMissing: () -> Unit) {
+    /**
+     * Called whenever the user taps the power button. Either toggles the proxy
+     * off, or — if perms are missing — defers to [showDialog] before starting.
+     */
+    private fun onPowerToggle(showDialog: () -> Unit) {
         val running = when (viewModel.serviceState.value) {
             is ProxyService.State.Running,
             is ProxyService.State.Starting,
@@ -133,13 +135,39 @@ class MainActivity : ComponentActivity() {
             viewModel.stop()
             return
         }
-        // Pre-flight: is mobile data actually on?
-        if (!CellularAvailability.isReachable(this)) {
-            pendingStart = true
-            onMobileDataMissing()
+        if (needsNotifPermission() || !BatteryOptimizationHelper.isIgnoring(this)) {
+            showDialog()
             return
         }
         actuallyStart()
+    }
+
+    private fun startPermsChain() {
+        awaitingPermsChain = true
+        continuePermsChain()
+    }
+
+    /**
+     * Walks one system prompt at a time. Re-enters from the activity-result
+     * callbacks until both perms have been either granted or declined, then
+     * starts the proxy.
+     */
+    private fun continuePermsChain() {
+        when {
+            needsNotifPermission() -> notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            !BatteryOptimizationHelper.isIgnoring(this) -> {
+                val direct = BatteryOptimizationHelper.requestIntent(this)
+                val resolved = direct.resolveActivity(packageManager)
+                val intent = if (resolved != null) direct
+                else BatteryOptimizationHelper.settingsIntent()
+                runCatching { batteryOptResult.launch(intent) }
+                    .onFailure { awaitingPermsChain = false; actuallyStart() }
+            }
+            else -> {
+                awaitingPermsChain = false
+                actuallyStart()
+            }
+        }
     }
 
     private fun actuallyStart() {
@@ -150,16 +178,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestDisableBatteryOptimization() {
-        val direct = BatteryOptimizationHelper.requestIntent(this)
-        val resolved = direct.resolveActivity(packageManager)
-        try {
-            batteryOptResult.launch(
-                if (resolved != null) direct else BatteryOptimizationHelper.settingsIntent()
-            )
-        } catch (_: Exception) {
-            runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
-        }
+    private fun needsNotifPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        return ContextCompat.checkSelfPermission(
+            this, Manifest.permission.POST_NOTIFICATIONS,
+        ) != PackageManager.PERMISSION_GRANTED
     }
 
     private fun openMobileDataSettings() {

@@ -67,7 +67,9 @@ class ProxyService : Service() {
         data class Running(val bindAddress: String, val port: Int) : State
         /** Listener still bound; cellular link is gone, so outbound connects fail. */
         data class Paused(val bindAddress: String, val port: Int, val reason: String) : State
-        data class Error(val message: String) : State
+        data class Error(val message: String, val kind: ErrorKind = ErrorKind.Generic) : State
+
+        enum class ErrorKind { Generic, MobileDataUnavailable, BindFailed }
     }
 
     inner class LocalBinder : Binder() {
@@ -114,9 +116,12 @@ class ProxyService : Service() {
 
         cellular.start()
         scope.launch {
-            val net = cellular.awaitAvailable(10_000L)
+            val net = cellular.awaitAvailable(6_000L)
             if (net == null) {
-                _state.value = State.Error("Cellular network unavailable. Enable mobile data.")
+                _state.value = State.Error(
+                    message = "Mobile data is unavailable. Turn it on to start the proxy.",
+                    kind = State.ErrorKind.MobileDataUnavailable,
+                )
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 cellular.stop()
                 return@launch
@@ -128,7 +133,10 @@ class ProxyService : Service() {
                 registry = registry,
                 onFatal = { e ->
                     // Surface the error and tear down, but keep the error visible.
-                    _state.value = State.Error(e.message ?: "Bind failed")
+                    _state.value = State.Error(
+                        message = e.message ?: "Bind failed",
+                        kind = State.ErrorKind.BindFailed,
+                    )
                     server?.stop(); server = null
                     cellular.stop()
                     registry.reset()

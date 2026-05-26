@@ -41,7 +41,7 @@ Grab the latest **signed APK** from the
 side-load:
 
 ```bash
-adb install DataProxy-v0.2.apk
+adb install DataProxy-v0.2.1.apk
 ```
 
 Or download to the phone and tap to install (allow "install from unknown
@@ -67,7 +67,7 @@ sources" if prompted).
 
 | | |
 |---|---|
-| ⚡ **Cellular pinning** | `ConnectivityManager.requestNetwork(TRANSPORT_CELLULAR)` + `Network.bindSocket()` per outbound. No root, no VPN service. |
+| ⚡ **Cellular pinning** | `ConnectivityManager.requestNetwork(TRANSPORT_CELLULAR)` + `Network.bindSocket()` per outbound, plus `bindProcessToNetwork(cellular)` so any incidental JVM DNS also goes over LTE. No root, no VPN service. |
 | 🔌 **SOCKS5 (RFC 1928)** | No-auth, CONNECT, IPv4 / IPv6 / domain ATYP. Hostname DNS is resolved on the cellular network — no Wi-Fi DNS leak. |
 | 🌐 **Listen anywhere** | Bind to `0.0.0.0` or pick a specific interface (Wi-Fi, USB tether, ethernet). |
 | 📊 **Live metrics** | Real-time speed bars, cumulative traffic per direction, per-client device list. |
@@ -97,9 +97,11 @@ sources" if prompted).
 
 DataProxy holds a long-lived reference to the cellular `Network` object via
 `ConnectivityManager.requestNetwork`. Every outbound socket it creates is
-explicitly bound to that network with `Network.bindSocket(socket)`, which
-forces its egress over LTE regardless of which network is the system
-default. The OS routing table is untouched — other apps see no change.
+explicitly bound to that network with `Network.bindSocket(socket)`, and the
+whole DataProxy process is pinned with `ConnectivityManager.bindProcessToNetwork(cellular)`
+so any JVM-default DNS (and any future incidental network call) also goes
+over LTE — guaranteeing no Wi-Fi DNS leak. The OS routing table is untouched —
+other apps on the phone see no change.
 
 ## Build from source
 
