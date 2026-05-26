@@ -36,10 +36,11 @@ import com.dataproxy.ui.theme.SurfaceLow
 import com.dataproxy.ui.theme.TextMuted
 import com.dataproxy.ui.theme.TextPrimary
 import com.dataproxy.ui.theme.TextSecondary
+import com.dataproxy.ui.theme.ThemeMode
 import com.dataproxy.ui.theme.Warning
 import com.dataproxy.ui.viewmodel.MainViewModel
 
-enum class Tab { Home, ListenAddress, Devices }
+enum class Tab { Home, ListenAddress, Devices, Auth }
 
 @Composable
 fun AppNav(
@@ -47,6 +48,8 @@ fun AppNav(
     tab: Tab,
     onTabChange: (Tab) -> Unit,
     onToggle: () -> Unit,
+    themeMode: ThemeMode,
+    onCycleTheme: () -> Unit,
     showPermsDialog: Boolean,
     needNotif: Boolean,
     needBatt: Boolean,
@@ -72,12 +75,19 @@ fun AppNav(
                     onToggle = onToggle,
                     onOpenListen = { onTabChange(Tab.ListenAddress) },
                     onOpenDevices = { onTabChange(Tab.Devices) },
+                    onOpenAuth = { onTabChange(Tab.Auth) },
+                    themeMode = themeMode,
+                    onCycleTheme = onCycleTheme,
                 )
                 Tab.ListenAddress -> ListenAddressScreen(
                     viewModel = viewModel,
                     onBack = { onTabChange(Tab.Home) },
                 )
                 Tab.Devices -> DevicesScreen(
+                    viewModel = viewModel,
+                    onBack = { onTabChange(Tab.Home) },
+                )
+                Tab.Auth -> AuthScreen(
                     viewModel = viewModel,
                     onBack = { onTabChange(Tab.Home) },
                 )

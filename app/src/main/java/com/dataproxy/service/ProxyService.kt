@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 import com.dataproxy.MainActivity
 import com.dataproxy.R
 import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.proxy.AuthConfig
 import com.dataproxy.proxy.ConnectionRegistry
 import com.dataproxy.proxy.Socks5Server
 import com.dataproxy.proxy.SpeedSampler
@@ -144,6 +145,7 @@ class ProxyService : Service() {
                     releaseWakeLock()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 },
+                authProvider = ::currentAuthConfig,
             )
             server = srv
             srv.start()
@@ -303,6 +305,20 @@ class ProxyService : Service() {
         return if (i == 0) "${bps}${units[i]}" else "%.1f%s".format(v, units[i])
     }
 
+    /**
+     * Read auth settings live from the same shared prefs the UI writes to.
+     * Each new SOCKS5 connection re-reads, so toggling auth on the Auth
+     * screen takes effect without restarting the proxy.
+     */
+    private fun currentAuthConfig(): AuthConfig {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        return AuthConfig(
+            enabled = prefs.getBoolean(PREF_AUTH_ENABLED, false),
+            username = prefs.getString(PREF_AUTH_USERNAME, "") ?: "",
+            password = prefs.getString(PREF_AUTH_PASSWORD, "") ?: "",
+        )
+    }
+
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -326,6 +342,12 @@ class ProxyService : Service() {
 
         private const val CHANNEL_ID = "dataproxy.status"
         private const val NOTIF_ID = 1001
+
+        // Mirrored by [com.dataproxy.ui.viewmodel.MainViewModel] — must match.
+        const val PREFS_NAME = "dataproxy_prefs"
+        const val PREF_AUTH_ENABLED = "auth_enabled"
+        const val PREF_AUTH_USERNAME = "auth_username"
+        const val PREF_AUTH_PASSWORD = "auth_password"
 
         fun startIntent(ctx: Context, addr: String, port: Int) =
             Intent(ctx, ProxyService::class.java)

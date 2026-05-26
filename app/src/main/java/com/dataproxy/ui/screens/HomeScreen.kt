@@ -18,8 +18,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +54,7 @@ import com.dataproxy.ui.theme.SurfaceLow
 import com.dataproxy.ui.theme.TextMuted
 import com.dataproxy.ui.theme.TextPrimary
 import com.dataproxy.ui.theme.TextSecondary
+import com.dataproxy.ui.theme.ThemeMode
 import com.dataproxy.ui.theme.Warning
 import com.dataproxy.ui.viewmodel.MainViewModel
 
@@ -59,6 +64,9 @@ fun HomeScreen(
     onToggle: () -> Unit,
     onOpenListen: () -> Unit,
     onOpenDevices: () -> Unit,
+    onOpenAuth: () -> Unit,
+    themeMode: ThemeMode,
+    onCycleTheme: () -> Unit,
 ) {
     val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
     val totals by viewModel.totals.collectAsStateWithLifecycle()
@@ -66,6 +74,9 @@ fun HomeScreen(
     val cellular by viewModel.cellular.collectAsStateWithLifecycle()
     val bindAddress by viewModel.bindAddress.collectAsStateWithLifecycle()
     val port by viewModel.port.collectAsStateWithLifecycle()
+    val authEnabled by viewModel.authEnabled.collectAsStateWithLifecycle()
+    val devices by viewModel.devices.collectAsStateWithLifecycle()
+    val activeDeviceCount = devices.count { it.activeConnections > 0 }
 
     val powerState = when (serviceState) {
         is ProxyService.State.Running -> PowerState.On
@@ -88,8 +99,12 @@ fun HomeScreen(
             .padding(horizontal = 18.dp)
             .padding(top = 8.dp, bottom = 12.dp),
     ) {
-        Header(cellular)
-        Spacer(Modifier.height(12.dp))
+        Header(
+            cellular = cellular,
+            themeMode = themeMode,
+            onCycleTheme = onCycleTheme,
+        )
+        Spacer(Modifier.height(10.dp))
         Box(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
@@ -111,7 +126,7 @@ fun HomeScreen(
         Spacer(Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             NavTile(
                 icon = Icons.Rounded.Router,
@@ -123,8 +138,20 @@ fun HomeScreen(
             NavTile(
                 icon = Icons.Rounded.Devices,
                 title = "Devices",
-                subtitle = if (totals.active == 0) "no clients" else "${totals.active} active",
+                subtitle = when {
+                    devices.isEmpty() -> "none"
+                    activeDeviceCount == 0 -> "${devices.size} seen"
+                    activeDeviceCount == devices.size -> "$activeDeviceCount online"
+                    else -> "$activeDeviceCount / ${devices.size} online"
+                },
                 onClick = onOpenDevices,
+                modifier = Modifier.weight(1f),
+            )
+            NavTile(
+                icon = Icons.Rounded.Lock,
+                title = "Auth",
+                subtitle = if (authEnabled) "required" else "disabled",
+                onClick = onOpenAuth,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -134,26 +161,34 @@ fun HomeScreen(
 }
 
 @Composable
-private fun Header(cellular: CellularNetworkProvider.State) {
+private fun Header(
+    cellular: CellularNetworkProvider.State,
+    themeMode: ThemeMode,
+    onCycleTheme: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(listOf(Accent, Color(0xFF1E9C70)))
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Bolt,
-                contentDescription = null,
-                tint = Color.Black,
-                modifier = Modifier.size(18.dp),
-            )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(listOf(Accent, Color(0xFF1E9C70)))
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Bolt,
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            ThemeToggleButton(themeMode = themeMode, onClick = onCycleTheme)
         }
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -191,6 +226,36 @@ private fun Header(cellular: CellularNetworkProvider.State) {
 }
 
 @Composable
+private fun ThemeToggleButton(themeMode: ThemeMode, onClick: () -> Unit) {
+    val icon = when (themeMode) {
+        ThemeMode.System -> Icons.Rounded.BrightnessAuto
+        ThemeMode.Light -> Icons.Rounded.LightMode
+        ThemeMode.Dark -> Icons.Rounded.DarkMode
+    }
+    val description = when (themeMode) {
+        ThemeMode.System -> "Theme: follow system"
+        ThemeMode.Light -> "Theme: light"
+        ThemeMode.Dark -> "Theme: dark"
+    }
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(SurfaceLow)
+            .border(1.dp, OutlineSoft, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = TextSecondary,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
 private fun NavTile(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
@@ -198,72 +263,80 @@ private fun NavTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(SurfaceLow)
             .border(1.dp, OutlineSoft, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 12.dp),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Accent,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = TextPrimary,
-                style = MaterialTheme.typography.titleMedium,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Accent,
+                modifier = Modifier.size(18.dp),
             )
-            Text(
-                text = subtitle,
-                color = TextSecondary,
-                style = MaterialTheme.typography.labelSmall,
+            Spacer(Modifier.weight(1f))
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = TextMuted,
+                modifier = Modifier.size(16.dp),
             )
         }
-        Icon(
-            imageVector = Icons.Rounded.ChevronRight,
-            contentDescription = null,
-            tint = TextMuted,
-            modifier = Modifier.size(18.dp),
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = title,
+            color = TextPrimary,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = subtitle,
+            color = TextSecondary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
         )
     }
 }
 
 @Composable
 private fun Footer() {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "DataProxy",
+                color = TextSecondary,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                ),
+            )
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(3.dp)
+                    .clip(CircleShape)
+                    .background(TextMuted),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "v1.0.0",
+                color = TextMuted,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                ),
+            )
+        }
+        Spacer(Modifier.height(2.dp))
         Text(
-            text = "DataProxy",
-            color = TextSecondary,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-            ),
-        )
-        Spacer(Modifier.width(8.dp))
-        Box(
-            modifier = Modifier
-                .size(3.dp)
-                .clip(CircleShape)
-                .background(TextMuted),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = "v0.2.1",
+            text = "By Sir.MmD",
             color = TextMuted,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontFamily = FontFamily.Monospace,
-            ),
+            style = MaterialTheme.typography.labelSmall,
         )
     }
 }

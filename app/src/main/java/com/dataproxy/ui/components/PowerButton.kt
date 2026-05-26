@@ -81,6 +81,8 @@ fun PowerButton(
         label = "spin-phase",
     )
 
+    val outlineSoftColor = OutlineSoft
+    val surfaceLowColor = SurfaceLow
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -111,7 +113,7 @@ fun PowerButton(
                 )
                 val topLeft = Offset(inset, inset)
                 drawArc(
-                    color = OutlineSoft,
+                    color = outlineSoftColor,
                     startAngle = 0f,
                     sweepAngle = 360f,
                     useCenter = false,
@@ -171,7 +173,7 @@ fun PowerButton(
                 modifier = Modifier
                     .size(innerDp)
                     .clip(CircleShape)
-                    .background(SurfaceLow),
+                    .background(surfaceLowColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(

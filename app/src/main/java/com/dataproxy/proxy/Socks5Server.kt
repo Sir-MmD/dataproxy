@@ -28,6 +28,7 @@ class Socks5Server(
     private val cellular: CellularNetworkProvider,
     val registry: ConnectionRegistry,
     private val onFatal: (Throwable) -> Unit,
+    private val authProvider: () -> AuthConfig = { AuthConfig.Disabled },
 ) {
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
@@ -72,6 +73,7 @@ class Socks5Server(
                         cellular = cellular,
                         registry = registry,
                         scope = scope,
+                        authProvider = authProvider,
                     ).handle()
                 }
             } finally {

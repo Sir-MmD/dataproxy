@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.DatagramSocket
 import java.net.Socket
 import kotlin.coroutines.resume
 
@@ -139,6 +140,20 @@ class CellularNetworkProvider(context: Context) {
     fun createBoundSocket(): Socket {
         val socket = Socket()
         bindSocket(socket)
+        return socket
+    }
+
+    /** Block-bind a DatagramSocket to the cellular network for UDP egress. */
+    fun bindDatagram(socket: DatagramSocket) {
+        val net = cellular
+            ?: throw IllegalStateException("Cellular network not available")
+        net.bindSocket(socket)
+    }
+
+    /** Create a new UDP socket already bound to the cellular network. */
+    fun createBoundDatagramSocket(): DatagramSocket {
+        val socket = DatagramSocket()
+        bindDatagram(socket)
         return socket
     }
 

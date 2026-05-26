@@ -35,6 +35,8 @@ class MainActivity : ComponentActivity() {
 
     /** True while walking through the system perm prompts triggered by the dialog. */
     private var awaitingPermsChain = false
+    private var notifAttempted = false
+    private var battAttempted = false
 
     private val notifPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -55,7 +57,8 @@ class MainActivity : ComponentActivity() {
         viewModel.refreshInterfaces()
 
         setContent {
-            DataProxyTheme {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            DataProxyTheme(themeMode = themeMode) {
                 var tab by rememberSaveable { mutableStateOf(Tab.Home) }
                 var showPermsDialog by remember { mutableStateOf(false) }
                 var showMobileDataDialog by remember { mutableStateOf(false) }
@@ -91,6 +94,8 @@ class MainActivity : ComponentActivity() {
                     tab = tab,
                     onTabChange = { tab = it },
                     onToggle = { onPowerToggle { showPermsDialog = true } },
+                    themeMode = themeMode,
+                    onCycleTheme = { viewModel.cycleThemeMode() },
                     showPermsDialog = showPermsDialog,
                     needNotif = needNotif,
                     needBatt = needBatt,
@@ -144,6 +149,8 @@ class MainActivity : ComponentActivity() {
 
     private fun startPermsChain() {
         awaitingPermsChain = true
+        notifAttempted = false
+        battAttempted = false
         continuePermsChain()
     }
 
@@ -151,17 +158,27 @@ class MainActivity : ComponentActivity() {
      * Walks one system prompt at a time. Re-enters from the activity-result
      * callbacks until both perms have been either granted or declined, then
      * starts the proxy.
+     *
+     * Each permission is only attempted once per chain — if the user denies,
+     * we move on rather than re-prompting. Android 13+'s "auto-deny after two
+     * denies" rule meant the old code looped synchronously on launch→callback
+     * once the OS stopped showing the dialog, causing an ANR/crash.
      */
     private fun continuePermsChain() {
         when {
-            needsNotifPermission() -> notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            !BatteryOptimizationHelper.isIgnoring(this) -> {
+            !notifAttempted && needsNotifPermission() -> {
+                notifAttempted = true
+                runCatching { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                    .onFailure { continuePermsChain() }
+            }
+            !battAttempted && !BatteryOptimizationHelper.isIgnoring(this) -> {
+                battAttempted = true
                 val direct = BatteryOptimizationHelper.requestIntent(this)
                 val resolved = direct.resolveActivity(packageManager)
                 val intent = if (resolved != null) direct
                 else BatteryOptimizationHelper.settingsIntent()
                 runCatching { batteryOptResult.launch(intent) }
-                    .onFailure { awaitingPermsChain = false; actuallyStart() }
+                    .onFailure { continuePermsChain() }
             }
             else -> {
                 awaitingPermsChain = false
@@ -171,10 +188,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun actuallyStart() {
-        viewModel.start()
+        runCatching { viewModel.start() }
         lifecycleScope.launch {
             delay(150)
-            viewModel.bind()
+            runCatching { viewModel.bind() }
         }
     }
 

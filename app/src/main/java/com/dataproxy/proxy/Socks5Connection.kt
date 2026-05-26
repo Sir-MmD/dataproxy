@@ -17,7 +17,8 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * One SOCKS5 conversation. RFC 1928, CONNECT command only.
+ * One SOCKS5 conversation. RFC 1928 — supports CONNECT (TCP) and
+ * UDP ASSOCIATE. Username/password auth (RFC 1929) is optional.
  *
  * Two-step lifecycle:
  *   1. handshake() — auth + parse request + open outbound on cellular
@@ -28,10 +29,12 @@ class Socks5Connection(
     private val cellular: CellularNetworkProvider,
     private val registry: ConnectionRegistry,
     private val scope: CoroutineScope,
+    private val authProvider: () -> AuthConfig = { AuthConfig.Disabled },
 ) {
 
     private var entry: ConnectionRegistry.Connection? = null
     private var outbound: Socket? = null
+    private var udpRelay: Socks5UdpRelay? = null
 
     fun handle(): Job = scope.launch(Dispatchers.IO) {
         try {
@@ -42,27 +45,13 @@ class Socks5Connection(
             val output = DataOutputStream(clientSocket.getOutputStream())
 
             if (!negotiateMethod(input, output)) return@launch
-            val target = readRequest(input, output) ?: return@launch
+            val req = readRequest(input, output) ?: return@launch
 
-            val remote = openRemote(target, output) ?: return@launch
-
-            // Successful tunnel; clear read timeout for the long-lived stream phase.
-            clientSocket.soTimeout = 0
-            remote.soTimeout = 0
-
-            val clientHost = (clientSocket.remoteSocketAddress as? InetSocketAddress)
-                ?.address?.hostAddress ?: "unknown"
-            val clientPort = (clientSocket.remoteSocketAddress as? InetSocketAddress)
-                ?.port ?: 0
-
-            entry = registry.open(
-                clientHost = clientHost,
-                clientPort = clientPort,
-                target = target.display(),
-            )
-            outbound = remote
-
-            relay(remote)
+            when (req.cmd) {
+                CMD_CONNECT -> handleConnect(req.target, output)
+                CMD_UDP_ASSOCIATE -> handleUdpAssociate(input, output)
+                else -> reply(output, REP_COMMAND_NOT_SUPPORTED)
+            }
         } catch (t: Throwable) {
             Log.d(TAG, "connection error: ${t.message}")
         } finally {
@@ -81,17 +70,46 @@ class Socks5Connection(
         val nMethods = input.readUnsignedByte()
         val methods = ByteArray(nMethods)
         input.readFully(methods)
+        val methodSet = methods.map { it.toInt() and 0xFF }.toSet()
 
-        // No-auth (0x00) required; reject otherwise.
-        val acceptsNoAuth = methods.any { it.toInt() and 0xFF == 0x00 }
-        if (!acceptsNoAuth) {
-            output.write(byteArrayOf(0x05.toByte(), 0xFF.toByte()))
+        val auth = authProvider()
+        return if (auth.enabled) {
+            if (METHOD_USERPASS !in methodSet) {
+                output.write(byteArrayOf(0x05.toByte(), 0xFF.toByte()))
+                output.flush(); return false
+            }
+            output.write(byteArrayOf(0x05.toByte(), METHOD_USERPASS.toByte()))
             output.flush()
-            return false
+            doUserPassAuth(input, output, auth)
+        } else {
+            if (METHOD_NO_AUTH !in methodSet) {
+                output.write(byteArrayOf(0x05.toByte(), 0xFF.toByte()))
+                output.flush(); return false
+            }
+            output.write(byteArrayOf(0x05.toByte(), METHOD_NO_AUTH.toByte()))
+            output.flush(); true
         }
-        output.write(byteArrayOf(0x05.toByte(), 0x00.toByte()))
+    }
+
+    private fun doUserPassAuth(
+        input: DataInputStream,
+        output: DataOutputStream,
+        auth: AuthConfig,
+    ): Boolean {
+        val ver = input.readUnsignedByte()
+        if (ver != 0x01) return false
+        val ulen = input.readUnsignedByte()
+        val unameBytes = ByteArray(ulen).also(input::readFully)
+        val plen = input.readUnsignedByte()
+        val passBytes = ByteArray(plen).also(input::readFully)
+        val username = String(unameBytes, Charsets.UTF_8)
+        val password = String(passBytes, Charsets.UTF_8)
+
+        val ok = username == auth.username && password == auth.password
+        output.write(byteArrayOf(0x01.toByte(), (if (ok) 0x00 else 0x01).toByte()))
         output.flush()
-        return true
+        if (!ok) Log.d(TAG, "auth failed for user=$username")
+        return ok
     }
 
     private sealed interface Target {
@@ -106,16 +124,15 @@ class Socks5Connection(
         }
     }
 
-    private fun readRequest(input: DataInputStream, output: DataOutputStream): Target? {
+    private data class Request(val cmd: Int, val target: Target)
+
+    private fun readRequest(input: DataInputStream, output: DataOutputStream): Request? {
         val ver = input.readUnsignedByte()
         val cmd = input.readUnsignedByte()
         input.readUnsignedByte() // RSV
         val atyp = input.readUnsignedByte()
 
         if (ver != 0x05) { reply(output, REP_GENERAL_FAILURE); return null }
-        if (cmd != CMD_CONNECT) {
-            reply(output, REP_COMMAND_NOT_SUPPORTED); return null
-        }
 
         val target = when (atyp) {
             ATYP_IPV4 -> {
@@ -135,10 +152,32 @@ class Socks5Connection(
                 reply(output, REP_ADDRESS_TYPE_NOT_SUPPORTED); return null
             }
         }
-        return target
+        return Request(cmd, target)
     }
 
-    // ---------------------------------------------------------------- outbound
+    // ---------------------------------------------------------------- CONNECT
+
+    private suspend fun handleConnect(target: Target, output: DataOutputStream) {
+        val remote = openRemote(target, output) ?: return
+
+        // Successful tunnel; clear read timeout for the long-lived stream phase.
+        clientSocket.soTimeout = 0
+        remote.soTimeout = 0
+
+        val clientHost = (clientSocket.remoteSocketAddress as? InetSocketAddress)
+            ?.address?.hostAddress ?: "unknown"
+        val clientPort = (clientSocket.remoteSocketAddress as? InetSocketAddress)
+            ?.port ?: 0
+
+        entry = registry.open(
+            clientHost = clientHost,
+            clientPort = clientPort,
+            target = target.display(),
+        )
+        outbound = remote
+
+        relay(remote)
+    }
 
     private suspend fun openRemote(target: Target, output: DataOutputStream): Socket? {
         // Resolve hostnames using the cellular DNS so we don't fall through to WiFi DNS.
@@ -185,6 +224,62 @@ class Socks5Connection(
             reply(output, e.toReplyCode())
             null
         }
+    }
+
+    // ---------------------------------------------------------------- UDP ASSOCIATE
+
+    private suspend fun handleUdpAssociate(input: DataInputStream, output: DataOutputStream) {
+        val localTcp = clientSocket.localSocketAddress as? InetSocketAddress
+        val listenAddr = localTcp?.address ?: InetAddress.getByName("0.0.0.0")
+
+        val relay = try {
+            Socks5UdpRelay(
+                cellular = cellular,
+                listenAddress = listenAddr,
+                scope = scope,
+                onBytes = { up, down ->
+                    entry?.let {
+                        if (up > 0) registry.recordUp(it, up)
+                        if (down > 0) registry.recordDown(it, down)
+                    }
+                },
+            )
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "UDP relay: cellular unavailable")
+            reply(output, REP_NETWORK_UNREACHABLE); return
+        } catch (e: Exception) {
+            Log.w(TAG, "UDP relay setup failed: ${e.message}")
+            reply(output, REP_GENERAL_FAILURE); return
+        }
+
+        relay.start()
+        udpRelay = relay
+
+        val clientHost = (clientSocket.remoteSocketAddress as? InetSocketAddress)
+            ?.address?.hostAddress ?: "unknown"
+        val clientPort = (clientSocket.remoteSocketAddress as? InetSocketAddress)
+            ?.port ?: 0
+        entry = registry.open(
+            clientHost = clientHost,
+            clientPort = clientPort,
+            target = "udp:${relay.port}",
+        )
+
+        reply(output, REP_SUCCEEDED, InetSocketAddress(listenAddr, relay.port))
+
+        // Hold the TCP control open. When the client closes it (read returns
+        // EOF or throws), tear down the UDP relay.
+        clientSocket.soTimeout = 0
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val buf = ByteArray(64)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                }
+            }
+        }
+        relay.close()
     }
 
     // ----------------------------------------------------------------- relay
@@ -280,6 +375,7 @@ class Socks5Connection(
     private fun closeQuietly() {
         runCatching { clientSocket.close() }
         runCatching { outbound?.close() }
+        runCatching { udpRelay?.close() }
     }
 
     companion object {
@@ -289,7 +385,11 @@ class Socks5Connection(
         private const val HANDSHAKE_TIMEOUT_MS = 15_000
         private const val CONNECT_TIMEOUT_MS = 15_000
 
+        private const val METHOD_NO_AUTH = 0x00
+        private const val METHOD_USERPASS = 0x02
+
         private const val CMD_CONNECT = 0x01
+        private const val CMD_UDP_ASSOCIATE = 0x03
 
         private const val ATYP_IPV4 = 0x01
         private const val ATYP_DOMAIN = 0x03

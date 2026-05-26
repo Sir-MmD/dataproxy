@@ -46,9 +46,8 @@ fun SpeedometerCard(
     modifier: Modifier = Modifier,
 ) {
     SectionCard(
-        title = "Network speed",
+        title = "Proxy speed",
         modifier = modifier,
-        trailing = { Pill(text = "live", color = Accent) },
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -87,6 +86,7 @@ private fun SpeedTile(
         animationSpec = tween(600),
         label = "speed-bar",
     )
+    val outlineSoftColor = OutlineSoft
     Column(
         modifier = modifier.padding(vertical = 6.dp),
     ) {
@@ -129,7 +129,7 @@ private fun SpeedTile(
             Canvas(modifier = Modifier.fillMaxWidth().height(4.dp)) {
                 val baseY = size.height / 2
                 drawLine(
-                    color = OutlineSoft,
+                    color = outlineSoftColor,
                     start = Offset(0f, baseY),
                     end = Offset(size.width, baseY),
                     strokeWidth = size.height,

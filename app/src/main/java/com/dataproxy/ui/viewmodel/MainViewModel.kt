@@ -15,6 +15,7 @@ import com.dataproxy.network.NetworkInterfaceLister
 import com.dataproxy.proxy.ConnectionRegistry
 import com.dataproxy.proxy.SpeedSampler
 import com.dataproxy.service.ProxyService
+import com.dataproxy.ui.theme.ThemeMode
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,7 +26,7 @@ import kotlinx.coroutines.flow.onEach
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs: SharedPreferences =
-        app.getSharedPreferences("dataproxy_prefs", Context.MODE_PRIVATE)
+        app.getSharedPreferences(ProxyService.PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _bindAddress = MutableStateFlow(
         prefs.getString(KEY_BIND_ADDRESS, "0.0.0.0") ?: "0.0.0.0"
@@ -53,6 +54,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _cellular =
         MutableStateFlow<CellularNetworkProvider.State>(CellularNetworkProvider.State.Idle)
     val cellular: StateFlow<CellularNetworkProvider.State> = _cellular.asStateFlow()
+
+    private val _authEnabled = MutableStateFlow(
+        prefs.getBoolean(ProxyService.PREF_AUTH_ENABLED, false)
+    )
+    val authEnabled: StateFlow<Boolean> = _authEnabled.asStateFlow()
+
+    private val _authUsername = MutableStateFlow(
+        prefs.getString(ProxyService.PREF_AUTH_USERNAME, "") ?: ""
+    )
+    val authUsername: StateFlow<String> = _authUsername.asStateFlow()
+
+    private val _authPassword = MutableStateFlow(
+        prefs.getString(ProxyService.PREF_AUTH_PASSWORD, "") ?: ""
+    )
+    val authPassword: StateFlow<String> = _authPassword.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(
+        ThemeMode.fromKey(prefs.getString(KEY_THEME_MODE, null))
+    )
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     private var bound: ProxyService? = null
     private val collectors = mutableListOf<Job>()
@@ -111,13 +132,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putInt(KEY_PORT, p).apply()
     }
 
+    fun setAuthEnabled(enabled: Boolean) {
+        _authEnabled.value = enabled
+        prefs.edit().putBoolean(ProxyService.PREF_AUTH_ENABLED, enabled).apply()
+    }
+
+    fun setAuthUsername(value: String) {
+        _authUsername.value = value
+        prefs.edit().putString(ProxyService.PREF_AUTH_USERNAME, value).apply()
+    }
+
+    fun setAuthPassword(value: String) {
+        _authPassword.value = value
+        prefs.edit().putString(ProxyService.PREF_AUTH_PASSWORD, value).apply()
+    }
+
+    fun cycleThemeMode() {
+        val next = when (_themeMode.value) {
+            ThemeMode.System -> ThemeMode.Light
+            ThemeMode.Light -> ThemeMode.Dark
+            ThemeMode.Dark -> ThemeMode.System
+        }
+        _themeMode.value = next
+        prefs.edit().putString(KEY_THEME_MODE, next.key).apply()
+    }
+
     fun start() {
-        val ctx = getApplication<Application>()
-        val intent = ProxyService.startIntent(ctx, _bindAddress.value, _port.value)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ctx.startForegroundService(intent)
-        } else {
-            ctx.startService(intent)
+        runCatching {
+            val ctx = getApplication<Application>()
+            val intent = ProxyService.startIntent(ctx, _bindAddress.value, _port.value)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(intent)
+            } else {
+                ctx.startService(intent)
+            }
         }
     }
 
@@ -134,5 +182,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         private const val KEY_BIND_ADDRESS = "bind_address"
         private const val KEY_PORT = "port"
+        private const val KEY_THEME_MODE = "theme_mode"
     }
 }

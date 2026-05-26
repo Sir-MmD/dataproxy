@@ -159,9 +159,10 @@ private fun DeviceRow(device: ConnectionRegistry.DeviceSummary) {
                 ),
             )
             Spacer(Modifier.height(2.dp))
+            val state = if (device.activeConnections > 0) "online" else "idle"
             Text(
-                text = "${device.activeConnections} active · ${device.totalConnections} total · " +
-                    "↑${ByteFormatter.bytes(device.bytesUp)} ↓${ByteFormatter.bytes(device.bytesDown)}",
+                text = "$state · ↑${ByteFormatter.bytes(device.bytesUp)} " +
+                    "↓${ByteFormatter.bytes(device.bytesDown)}",
                 color = TextSecondary,
                 style = MaterialTheme.typography.labelMedium,
             )
