@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.dataproxy.network.CellularTechMonitor
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.screens.AppNav
 import com.dataproxy.ui.screens.Tab
@@ -33,22 +34,21 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
-    /** True while walking through the system perm prompts triggered by the dialog. */
-    private var awaitingPermsChain = false
-    private var notifAttempted = false
-    private var battAttempted = false
-
+    // Each launcher is fired independently from a per-item "Allow" button in
+    // the perms dialog. No more auto-chaining — the user explicitly grants
+    // (or skips) one at a time. The result callbacks just no-op; the Compose
+    // state poller in setContent picks up the new permission state.
     private val notifPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { /* grant or deny — either way, continue the chain */
-        if (awaitingPermsChain) continuePermsChain()
-    }
+    ) { /* state poll picks it up */ }
 
     private val batteryOptResult = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) {
-        if (awaitingPermsChain) continuePermsChain()
-    }
+    ) { /* state poll picks it up */ }
+
+    private val phonePermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* state poll picks it up */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,24 +61,32 @@ class MainActivity : ComponentActivity() {
             DataProxyTheme(themeMode = themeMode) {
                 var tab by rememberSaveable { mutableStateOf(Tab.Home) }
                 var showPermsDialog by remember { mutableStateOf(false) }
+                // When true, dismissing the perms dialog also kicks off the
+                // proxy. Header re-grant clicks set this to false so the
+                // dialog is purely informational in that context.
+                var permsDialogStartsProxy by remember { mutableStateOf(false) }
                 var showMobileDataDialog by remember { mutableStateOf(false) }
 
-                // Recompute perm flags periodically so the dialog reflects truth
-                // after the user comes back from system settings.
-                var needNotif by remember { mutableStateOf(needsNotifPermission()) }
-                var needBatt by remember {
-                    mutableStateOf(!BatteryOptimizationHelper.isIgnoring(this))
+                val notifApplicable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                val phoneApplicable = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                var notifGranted by remember { mutableStateOf(!needsNotifPermission()) }
+                var battGranted by remember {
+                    mutableStateOf(BatteryOptimizationHelper.isIgnoring(this))
                 }
+                var phoneGranted by remember { mutableStateOf(!needsPhonePermission()) }
                 LaunchedEffect(Unit) {
                     while (true) {
-                        needNotif = needsNotifPermission()
-                        needBatt = !BatteryOptimizationHelper.isIgnoring(this@MainActivity)
+                        notifGranted = !needsNotifPermission()
+                        battGranted = BatteryOptimizationHelper.isIgnoring(this@MainActivity)
+                        phoneGranted = !needsPhonePermission()
                         delay(1500)
                     }
                 }
 
-                // Surface mobile-data dialog when the service hits the matching
-                // error kind. One-shot per error transition.
+                // Safety net for the case where data toggles off between the
+                // power-tap check and cellular handshake — the service emits
+                // MobileDataUnavailable after the 15 s wait and we surface it
+                // the same way as the pre-start check.
                 val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
                 LaunchedEffect(serviceState) {
                     val s = serviceState
@@ -93,17 +101,42 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     tab = tab,
                     onTabChange = { tab = it },
-                    onToggle = { onPowerToggle { showPermsDialog = true } },
+                    onToggle = {
+                        onPowerToggle(
+                            showPerms = {
+                                permsDialogStartsProxy = true
+                                showPermsDialog = true
+                            },
+                            showMobileData = { showMobileDataDialog = true },
+                        )
+                    },
+                    onHeaderClick = {
+                        // Re-prompt opportunity: only on pre-33 devices where
+                        // the optional READ_PHONE_STATE may be missing. On
+                        // 33+ the normal perm is always granted so nothing to
+                        // do — clicks are silent.
+                        if (phoneApplicable && !phoneGranted) {
+                            permsDialogStartsProxy = false
+                            showPermsDialog = true
+                        }
+                    },
                     themeMode = themeMode,
                     onCycleTheme = { viewModel.cycleThemeMode() },
                     showPermsDialog = showPermsDialog,
-                    needNotif = needNotif,
-                    needBatt = needBatt,
-                    onDismissPermsDialog = { showPermsDialog = false },
-                    onAllowPerms = {
+                    notifApplicable = notifApplicable,
+                    notifGranted = notifGranted,
+                    battGranted = battGranted,
+                    phoneApplicable = phoneApplicable,
+                    phoneGranted = phoneGranted,
+                    onDismissPermsDialog = {
+                        val wasForStart = permsDialogStartsProxy
                         showPermsDialog = false
-                        startPermsChain()
+                        permsDialogStartsProxy = false
+                        if (wasForStart) actuallyStart()
                     },
+                    onAllowNotif = { requestNotifPermission() },
+                    onAllowBatt = { requestBatteryOptIgnore() },
+                    onAllowPhone = { requestPhonePermission() },
                     showMobileDataDialog = showMobileDataDialog,
                     onDismissMobileDataDialog = { showMobileDataDialog = false },
                     onOpenMobileDataSettings = {
@@ -126,10 +159,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Called whenever the user taps the power button. Either toggles the proxy
-     * off, or — if perms are missing — defers to [showDialog] before starting.
+     * Power-button tap. Stops if running; otherwise gates start on mobile-data
+     * availability first, then on perms. Mobile-data check happens *only* on
+     * start (not as a passive banner) — that's where the user asked for it.
      */
-    private fun onPowerToggle(showDialog: () -> Unit) {
+    private fun onPowerToggle(showPerms: () -> Unit, showMobileData: () -> Unit) {
         val running = when (viewModel.serviceState.value) {
             is ProxyService.State.Running,
             is ProxyService.State.Starting,
@@ -140,51 +174,33 @@ class MainActivity : ComponentActivity() {
             viewModel.stop()
             return
         }
-        if (needsNotifPermission() || !BatteryOptimizationHelper.isIgnoring(this)) {
-            showDialog()
+        if (viewModel.cellularTech.value is CellularTechMonitor.TechState.DataOff) {
+            showMobileData()
+            return
+        }
+        if (needsNotifPermission() ||
+            !BatteryOptimizationHelper.isIgnoring(this) ||
+            needsPhonePermission()
+        ) {
+            showPerms()
             return
         }
         actuallyStart()
     }
 
-    private fun startPermsChain() {
-        awaitingPermsChain = true
-        notifAttempted = false
-        battAttempted = false
-        continuePermsChain()
+    private fun requestNotifPermission() {
+        runCatching { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     }
 
-    /**
-     * Walks one system prompt at a time. Re-enters from the activity-result
-     * callbacks until both perms have been either granted or declined, then
-     * starts the proxy.
-     *
-     * Each permission is only attempted once per chain — if the user denies,
-     * we move on rather than re-prompting. Android 13+'s "auto-deny after two
-     * denies" rule meant the old code looped synchronously on launch→callback
-     * once the OS stopped showing the dialog, causing an ANR/crash.
-     */
-    private fun continuePermsChain() {
-        when {
-            !notifAttempted && needsNotifPermission() -> {
-                notifAttempted = true
-                runCatching { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
-                    .onFailure { continuePermsChain() }
-            }
-            !battAttempted && !BatteryOptimizationHelper.isIgnoring(this) -> {
-                battAttempted = true
-                val direct = BatteryOptimizationHelper.requestIntent(this)
-                val resolved = direct.resolveActivity(packageManager)
-                val intent = if (resolved != null) direct
-                else BatteryOptimizationHelper.settingsIntent()
-                runCatching { batteryOptResult.launch(intent) }
-                    .onFailure { continuePermsChain() }
-            }
-            else -> {
-                awaitingPermsChain = false
-                actuallyStart()
-            }
-        }
+    private fun requestBatteryOptIgnore() {
+        val direct = BatteryOptimizationHelper.requestIntent(this)
+        val intent = if (direct.resolveActivity(packageManager) != null) direct
+        else BatteryOptimizationHelper.settingsIntent()
+        runCatching { batteryOptResult.launch(intent) }
+    }
+
+    private fun requestPhonePermission() {
+        runCatching { phonePermission.launch(Manifest.permission.READ_PHONE_STATE) }
     }
 
     private fun actuallyStart() {
@@ -199,6 +215,20 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
         return ContextCompat.checkSelfPermission(
             this, Manifest.permission.POST_NOTIFICATIONS,
+        ) != PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Only true on pre-33 devices: API 33+ uses READ_BASIC_PHONE_STATE (a
+     * normal install-time perm that's auto-granted), so we never prompt
+     * modern users. Below that, getDataNetworkType() needs the runtime
+     * READ_PHONE_STATE — optional for the proxy itself, used by the header
+     * to show the real radio tech (2G/3G/4G/5G + operator).
+     */
+    private fun needsPhonePermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return false
+        return ContextCompat.checkSelfPermission(
+            this, Manifest.permission.READ_PHONE_STATE,
         ) != PackageManager.PERMISSION_GRANTED
     }
 

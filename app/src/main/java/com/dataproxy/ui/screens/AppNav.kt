@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatteryAlert
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,13 +50,19 @@ fun AppNav(
     tab: Tab,
     onTabChange: (Tab) -> Unit,
     onToggle: () -> Unit,
+    onHeaderClick: () -> Unit,
     themeMode: ThemeMode,
     onCycleTheme: () -> Unit,
     showPermsDialog: Boolean,
-    needNotif: Boolean,
-    needBatt: Boolean,
+    notifApplicable: Boolean,
+    notifGranted: Boolean,
+    battGranted: Boolean,
+    phoneApplicable: Boolean,
+    phoneGranted: Boolean,
     onDismissPermsDialog: () -> Unit,
-    onAllowPerms: () -> Unit,
+    onAllowNotif: () -> Unit,
+    onAllowBatt: () -> Unit,
+    onAllowPhone: () -> Unit,
     showMobileDataDialog: Boolean,
     onDismissMobileDataDialog: () -> Unit,
     onOpenMobileDataSettings: () -> Unit,
@@ -78,6 +86,7 @@ fun AppNav(
                     onOpenAuth = { onTabChange(Tab.Auth) },
                     themeMode = themeMode,
                     onCycleTheme = onCycleTheme,
+                    onHeaderClick = onHeaderClick,
                 )
                 Tab.ListenAddress -> ListenAddressScreen(
                     viewModel = viewModel,
@@ -97,10 +106,15 @@ fun AppNav(
 
     if (showPermsDialog) {
         PermissionsDialog(
-            needNotif = needNotif,
-            needBatt = needBatt,
+            notifApplicable = notifApplicable,
+            notifGranted = notifGranted,
+            battGranted = battGranted,
+            phoneApplicable = phoneApplicable,
+            phoneGranted = phoneGranted,
+            onAllowNotif = onAllowNotif,
+            onAllowBatt = onAllowBatt,
+            onAllowPhone = onAllowPhone,
             onDismiss = onDismissPermsDialog,
-            onAllow = onAllowPerms,
         )
     }
 
@@ -134,53 +148,65 @@ fun AppNav(
 
 @Composable
 private fun PermissionsDialog(
-    needNotif: Boolean,
-    needBatt: Boolean,
+    notifApplicable: Boolean,
+    notifGranted: Boolean,
+    battGranted: Boolean,
+    phoneApplicable: Boolean,
+    phoneGranted: Boolean,
+    onAllowNotif: () -> Unit,
+    onAllowBatt: () -> Unit,
+    onAllowPhone: () -> Unit,
     onDismiss: () -> Unit,
-    onAllow: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = SurfaceLow,
         titleContentColor = TextPrimary,
         textContentColor = TextSecondary,
-        title = { Text("Before we start", fontWeight = FontWeight.SemiBold) },
+        title = { Text("Permissions", fontWeight = FontWeight.SemiBold) },
         text = {
             Column {
                 Text(
-                    text = "DataProxy needs these permissions so the proxy keeps running " +
-                        "when you leave the app.",
+                    text = "Tap Allow next to each one. Granted permissions show a check.",
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(14.dp))
-                if (needNotif) {
+                if (notifApplicable) {
                     PermItem(
                         icon = Icons.Rounded.Notifications,
                         title = "Notifications",
                         reason = "Shows the live proxy status. Required by Android so the " +
                             "system knows the service is doing real work and won't shut it down.",
+                        granted = notifGranted,
+                        onAllow = onAllowNotif,
                     )
                     Spacer(Modifier.height(12.dp))
                 }
-                if (needBatt) {
+                PermItem(
+                    icon = Icons.Rounded.BatteryAlert,
+                    title = "Ignore battery optimisation",
+                    reason = "Keeps the proxy alive with the screen off. Without this, " +
+                        "Android Doze suspends it after a few minutes and clients disconnect.",
+                    granted = battGranted,
+                    onAllow = onAllowBatt,
+                )
+                if (phoneApplicable) {
+                    Spacer(Modifier.height(12.dp))
                     PermItem(
-                        icon = Icons.Rounded.BatteryAlert,
-                        title = "Ignore battery optimisation",
-                        reason = "Keeps the proxy alive with the screen off. Without this, " +
-                            "Android Doze suspends it after a few minutes and clients disconnect.",
+                        icon = Icons.Rounded.SignalCellularAlt,
+                        title = "Phone state (optional)",
+                        reason = "Lets the header show your live cellular tech (2G/3G/4G/5G) " +
+                            "and operator. The proxy works fine without it.",
+                        granted = phoneGranted,
+                        onAllow = onAllowPhone,
                     )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onAllow) {
-                Text("Allow", color = Accent, fontWeight = FontWeight.SemiBold)
-            }
-        },
-        dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary)
+                Text("Done", color = Accent, fontWeight = FontWeight.SemiBold)
             }
         },
     )
@@ -191,6 +217,8 @@ private fun PermItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     reason: String,
+    granted: Boolean,
+    onAllow: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.Top) {
         Box(
@@ -208,7 +236,7 @@ private fun PermItem(
             )
         }
         Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 color = TextPrimary,
@@ -220,6 +248,19 @@ private fun PermItem(
                 color = TextMuted,
                 style = MaterialTheme.typography.labelMedium,
             )
+        }
+        Spacer(Modifier.width(8.dp))
+        if (granted) {
+            Icon(
+                imageVector = Icons.Rounded.CheckCircle,
+                contentDescription = "Granted",
+                tint = Accent,
+                modifier = Modifier.size(28.dp),
+            )
+        } else {
+            TextButton(onClick = onAllow) {
+                Text("Allow", color = Accent, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }

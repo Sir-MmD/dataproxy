@@ -50,6 +50,7 @@ class ProxyService : Service() {
     private val sampler = SpeedSampler()
 
     private var server: Socks5Server? = null
+    private var startJob: Job? = null
     private var publishJob: Job? = null
     private var cellularWatchJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -112,19 +113,24 @@ class ProxyService : Service() {
     fun startProxy(bindAddress: String, port: Int) {
         if (_state.value is State.Running || _state.value is State.Starting) return
 
+        // Clear-state + kill: wipe everything from any previous cycle before
+        // we touch cellular again. Idempotent on a clean slate.
+        fullCleanup()
+
         _state.value = State.Starting(bindAddress, port)
         startForegroundNow(bindAddress, port)
 
         cellular.start()
-        scope.launch {
-            val net = cellular.awaitAvailable(6_000L)
+        startJob = scope.launch {
+            val net = cellular.awaitAvailable(15_000L)
+            if (_state.value !is State.Starting) return@launch
             if (net == null) {
                 _state.value = State.Error(
                     message = "Mobile data is unavailable. Turn it on to start the proxy.",
                     kind = State.ErrorKind.MobileDataUnavailable,
                 )
+                fullCleanup()
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                cellular.stop()
                 return@launch
             }
             val srv = Socks5Server(
@@ -133,16 +139,11 @@ class ProxyService : Service() {
                 cellular = cellular,
                 registry = registry,
                 onFatal = { e ->
-                    // Surface the error and tear down, but keep the error visible.
                     _state.value = State.Error(
                         message = e.message ?: "Bind failed",
                         kind = State.ErrorKind.BindFailed,
                     )
-                    server?.stop(); server = null
-                    cellular.stop()
-                    registry.reset()
-                    sampler.reset()
-                    releaseWakeLock()
+                    fullCleanup()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 },
                 authProvider = ::currentAuthConfig,
@@ -160,6 +161,18 @@ class ProxyService : Service() {
     }
 
     fun stopProxy() {
+        _state.value = State.Stopped
+        fullCleanup()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    /**
+     * Cancel every coroutine, close the server, unregister the cellular
+     * callback, drop the process network binding, and reset counters. Called
+     * on both start (to wipe leftover state) and stop. Idempotent.
+     */
+    private fun fullCleanup() {
+        startJob?.cancel(); startJob = null
         publishJob?.cancel(); publishJob = null
         cellularWatchJob?.cancel(); cellularWatchJob = null
         server?.stop(); server = null
@@ -167,8 +180,6 @@ class ProxyService : Service() {
         registry.reset()
         sampler.reset()
         releaseWakeLock()
-        _state.value = State.Stopped
-        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     /**

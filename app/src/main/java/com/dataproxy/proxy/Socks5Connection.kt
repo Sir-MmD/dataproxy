@@ -220,7 +220,14 @@ class Socks5Connection(
             remote
         } catch (e: IOException) {
             Log.d(TAG, "connect to $target failed: ${e.message}")
-            runCatching { remote.close() }
+            // RST instead of FIN/TIME_WAIT so the carrier NAT entry for this
+            // 5-tuple is torn down immediately. Failed handshakes are the
+            // usual culprits behind lingering NAT state that needed a full
+            // app force-stop to clear.
+            runCatching {
+                remote.setSoLinger(true, 0)
+                remote.close()
+            }
             reply(output, e.toReplyCode())
             null
         }

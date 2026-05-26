@@ -35,21 +35,27 @@ class CellularNetworkProvider(context: Context) {
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            // We do NOT call cm.bindProcessToNetwork(network) here.
+            // That tags every socket the process creates — including the
+            // SOCKS5 listener — with the cellular netId. The kernel then
+            // routes the listener's SYN-ACK replies via the cellular
+            // route table, so external clients on Wi-Fi never finish the
+            // TCP handshake (SYN_RECV → retransmits → time out).
+            //
+            // All outbound traffic is pinned to cellular explicitly via
+            // Network.bindSocket on each created socket
+            // (see createBoundSocket / createBoundDatagramSocket), and
+            // every DNS lookup goes through Network.getAllByName on this
+            // network handle. No code path in this app uses JVM-default
+            // DNS, so dropping the process binding doesn't open a leak.
             cellular = network
-            // Pin the *process* to cellular so any JVM-default DNS lookup
-            // (InetAddress.getByName, OkHttp via system, etc.) is forced over
-            // mobile data. Without this, a DNS query that escapes our
-            // explicit Network.getAllByName path would leak to Wi-Fi DNS.
-            // Listening sockets are unaffected — they don't egress.
-            runCatching { cm.bindProcessToNetwork(network) }
             _state.value = State.Available(network)
-            Log.d(TAG, "cellular available + process bound: $network")
+            Log.d(TAG, "cellular available: $network")
         }
 
         override fun onLost(network: Network) {
             if (cellular == network) {
                 cellular = null
-                runCatching { cm.bindProcessToNetwork(null) }
                 _state.value = State.Lost
                 Log.d(TAG, "cellular lost: $network")
             }
@@ -57,17 +63,12 @@ class CellularNetworkProvider(context: Context) {
 
         override fun onUnavailable() {
             cellular = null
-            runCatching { cm.bindProcessToNetwork(null) }
             _state.value = State.Unavailable
             Log.w(TAG, "cellular unavailable")
         }
 
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            // Capabilities change on the same Network handle — keep the process
-            // binding pointed at it. The system may also swap the Network the
-            // callback tracks; keep both refs in sync.
             cellular = network
-            runCatching { cm.bindProcessToNetwork(network) }
         }
     }
 
@@ -91,7 +92,6 @@ class CellularNetworkProvider(context: Context) {
     fun stop() {
         if (!registered) return
         runCatching { cm.unregisterNetworkCallback(callback) }
-        runCatching { cm.bindProcessToNetwork(null) }
         registered = false
         cellular = null
         _state.value = State.Idle

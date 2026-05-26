@@ -37,10 +37,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.network.CellularTechMonitor
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.components.PowerButton
 import com.dataproxy.ui.components.PowerState
@@ -67,11 +69,13 @@ fun HomeScreen(
     onOpenAuth: () -> Unit,
     themeMode: ThemeMode,
     onCycleTheme: () -> Unit,
+    onHeaderClick: () -> Unit,
 ) {
     val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
     val totals by viewModel.totals.collectAsStateWithLifecycle()
     val rates by viewModel.rates.collectAsStateWithLifecycle()
     val cellular by viewModel.cellular.collectAsStateWithLifecycle()
+    val cellularTech by viewModel.cellularTech.collectAsStateWithLifecycle()
     val bindAddress by viewModel.bindAddress.collectAsStateWithLifecycle()
     val port by viewModel.port.collectAsStateWithLifecycle()
     val authEnabled by viewModel.authEnabled.collectAsStateWithLifecycle()
@@ -101,8 +105,10 @@ fun HomeScreen(
     ) {
         Header(
             cellular = cellular,
+            tech = cellularTech,
             themeMode = themeMode,
             onCycleTheme = onCycleTheme,
+            onNetworkClick = onHeaderClick,
         )
         Spacer(Modifier.height(10.dp))
         Box(
@@ -163,9 +169,12 @@ fun HomeScreen(
 @Composable
 private fun Header(
     cellular: CellularNetworkProvider.State,
+    tech: CellularTechMonitor.TechState,
     themeMode: ThemeMode,
     onCycleTheme: () -> Unit,
+    onNetworkClick: () -> Unit,
 ) {
+    val isOff = tech is CellularTechMonitor.TechState.DataOff
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -200,28 +209,59 @@ private fun Header(
                     fontSize = 20.sp,
                 ),
             )
+            // Subtitle becomes the off-banner when mobile data is off, so the
+            // long phrase has space to breathe instead of fighting the corner.
             Text(
-                text = "socks5 over cellular",
-                color = TextMuted,
+                text = if (isOff) "Mobile data is OFF" else "Socks5 Over Cellular",
+                color = if (isOff) Danger else TextMuted,
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        val (dotColor, label) = when (cellular) {
-            is CellularNetworkProvider.State.Available -> Accent to "LTE"
-            CellularNetworkProvider.State.Requesting -> Warning to "WAIT"
-            CellularNetworkProvider.State.Lost,
-            CellularNetworkProvider.State.Unavailable -> Danger to "NONE"
-            CellularNetworkProvider.State.Idle -> TextMuted to "IDLE"
+        // Header indicator is purely device-cellular state. Tech needs
+        // READ_BASIC_PHONE_STATE (auto-granted normal perm, API 33+) or
+        // READ_PHONE_STATE (runtime, pre-33). Tapping the indicator re-opens
+        // the perms dialog so the user can grant it after the fact.
+        val dotColor = when (tech) {
+            is CellularTechMonitor.TechState.Tech -> Accent
+            is CellularTechMonitor.TechState.OperatorOnly -> Accent
+            CellularTechMonitor.TechState.DataOff -> Danger
+            CellularTechMonitor.TechState.Unknown -> when (cellular) {
+                is CellularNetworkProvider.State.Available -> Accent
+                CellularNetworkProvider.State.Requesting -> Warning
+                else -> TextMuted
+            }
         }
-        StatusDot(color = dotColor)
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = label,
-            color = TextSecondary,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontFamily = FontFamily.Monospace,
-            ),
-        )
+        val label = when (tech) {
+            is CellularTechMonitor.TechState.Tech ->
+                if (tech.operator.isBlank()) tech.label
+                else "${tech.operator} · ${tech.label}"
+            is CellularTechMonitor.TechState.OperatorOnly -> tech.operator
+            CellularTechMonitor.TechState.DataOff -> "OFF"
+            CellularTechMonitor.TechState.Unknown -> when (cellular) {
+                is CellularNetworkProvider.State.Available -> "MOBILE"
+                CellularNetworkProvider.State.Requesting -> "WAIT"
+                else -> "—"
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onNetworkClick)
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+        ) {
+            StatusDot(color = dotColor)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                color = if (isOff) Danger else TextSecondary,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = if (label.length <= 6) 13.sp else 11.sp,
+                ),
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -325,7 +365,7 @@ private fun Footer() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "v1.0.0",
+                text = "v1.1.0",
                 color = TextMuted,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = FontFamily.Monospace,

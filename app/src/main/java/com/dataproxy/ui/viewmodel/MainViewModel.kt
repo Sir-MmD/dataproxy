@@ -11,6 +11,7 @@ import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.network.CellularTechMonitor
 import com.dataproxy.network.NetworkInterfaceLister
 import com.dataproxy.proxy.ConnectionRegistry
 import com.dataproxy.proxy.SpeedSampler
@@ -54,6 +55,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _cellular =
         MutableStateFlow<CellularNetworkProvider.State>(CellularNetworkProvider.State.Idle)
     val cellular: StateFlow<CellularNetworkProvider.State> = _cellular.asStateFlow()
+
+    private val techMonitor = CellularTechMonitor(app).also { it.start(viewModelScope) }
+    val cellularTech: StateFlow<CellularTechMonitor.TechState> = techMonitor.state
 
     private val _authEnabled = MutableStateFlow(
         prefs.getBoolean(ProxyService.PREF_AUTH_ENABLED, false)
@@ -176,6 +180,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
+        techMonitor.stop()
         unbind()
     }
 
