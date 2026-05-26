@@ -4,22 +4,27 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.dataproxy.service.ProxyService
-import com.dataproxy.ui.screens.HomeScreen
+import com.dataproxy.ui.screens.AppNav
+import com.dataproxy.ui.screens.Tab
 import com.dataproxy.ui.theme.DataProxyTheme
 import com.dataproxy.ui.viewmodel.MainViewModel
 import com.dataproxy.util.BatteryOptimizationHelper
+import com.dataproxy.util.CellularAvailability
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -35,6 +40,8 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult(),
     ) { /* state is re-read each onResume */ }
 
+    private var pendingStart by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -48,18 +55,49 @@ class MainActivity : ComponentActivity() {
         setContent {
             DataProxyTheme {
                 var battOk by remember { mutableStateOf(BatteryOptimizationHelper.isIgnoring(this)) }
-                // Re-check periodically — settings can change while we're foregrounded.
+                var showBattDialog by rememberSaveable { mutableStateOf(false) }
+                var showMobileDataDialog by remember { mutableStateOf(false) }
+                var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+
+                // Re-check battery opt periodically — user may change it while we're foregrounded.
                 LaunchedEffect(Unit) {
                     while (true) {
+                        val before = battOk
                         battOk = BatteryOptimizationHelper.isIgnoring(this@MainActivity)
+                        // Prompt once per launch if still not granted (give user 2s to see UI).
+                        if (!battOk && !showBattDialog && before == battOk) {
+                            // first-tick: only prompt once
+                        }
                         delay(2000)
                     }
                 }
-                HomeScreen(
+                // Show the battery prompt 1s after the UI lands on first launch.
+                LaunchedEffect(battOk) {
+                    if (!battOk) {
+                        delay(800)
+                        if (!BatteryOptimizationHelper.isIgnoring(this@MainActivity)) {
+                            showBattDialog = true
+                        }
+                    }
+                }
+
+                AppNav(
                     viewModel = viewModel,
-                    batteryOptimizationIgnored = battOk,
-                    onRequestDisableBatteryOptimization = ::requestDisableBatteryOptimization,
-                    onToggle = ::toggleProxy,
+                    tab = tab,
+                    onTabChange = { tab = it },
+                    onToggle = { onPowerToggle { showMobileDataDialog = true } },
+                    showBattDialog = showBattDialog,
+                    onDismissBattDialog = { showBattDialog = false },
+                    onAllowBatt = {
+                        showBattDialog = false
+                        requestDisableBatteryOptimization()
+                    },
+                    showMobileDataDialog = showMobileDataDialog,
+                    onDismissMobileDataDialog = { showMobileDataDialog = false; pendingStart = false },
+                    onOpenMobileDataSettings = {
+                        showMobileDataDialog = false
+                        openMobileDataSettings()
+                    },
                 )
             }
         }
@@ -70,25 +108,45 @@ class MainActivity : ComponentActivity() {
         viewModel.bind()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // User may have just enabled data via the settings shortcut.
+        if (pendingStart && CellularAvailability.isReachable(this)) {
+            pendingStart = false
+            actuallyStart()
+        }
+    }
+
     override fun onStop() {
         super.onStop()
         viewModel.unbind()
     }
 
-    private fun toggleProxy() {
+    private fun onPowerToggle(onMobileDataMissing: () -> Unit) {
         val running = when (viewModel.serviceState.value) {
-            is ProxyService.State.Running, is ProxyService.State.Starting -> true
+            is ProxyService.State.Running,
+            is ProxyService.State.Starting,
+            is ProxyService.State.Paused -> true
             else -> false
         }
         if (running) {
             viewModel.stop()
-        } else {
-            viewModel.start()
-            // Bind shortly after start so we mirror live state from the service.
-            lifecycleScope.launch {
-                delay(150)
-                viewModel.bind()
-            }
+            return
+        }
+        // Pre-flight: is mobile data actually on?
+        if (!CellularAvailability.isReachable(this)) {
+            pendingStart = true
+            onMobileDataMissing()
+            return
+        }
+        actuallyStart()
+    }
+
+    private fun actuallyStart() {
+        viewModel.start()
+        lifecycleScope.launch {
+            delay(150)
+            viewModel.bind()
         }
     }
 
@@ -100,8 +158,23 @@ class MainActivity : ComponentActivity() {
                 if (resolved != null) direct else BatteryOptimizationHelper.settingsIntent()
             )
         } catch (_: Exception) {
-            // last-ditch: open generic settings
-            runCatching { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }
+            runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
         }
+    }
+
+    private fun openMobileDataSettings() {
+        val candidates = listOf(
+            Intent(Settings.ACTION_DATA_USAGE_SETTINGS),
+            Intent(Settings.ACTION_WIRELESS_SETTINGS),
+            Intent(Settings.ACTION_NETWORK_OPERATOR_SETTINGS),
+        )
+        for (i in candidates) {
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (i.resolveActivity(packageManager) != null) {
+                runCatching { startActivity(i) }
+                return
+            }
+        }
+        runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
     }
 }

@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.dataproxy.ui.theme.Accent
 import com.dataproxy.ui.theme.AccentDim
@@ -40,8 +41,9 @@ import com.dataproxy.ui.theme.OutlineSoft
 import com.dataproxy.ui.theme.SurfaceLow
 import com.dataproxy.ui.theme.TextMuted
 import com.dataproxy.ui.theme.TextSecondary
+import com.dataproxy.ui.theme.Warning
 
-enum class PowerState { Off, Starting, On, Error }
+enum class PowerState { Off, Starting, On, Paused, Error }
 
 @Composable
 fun PowerButton(
@@ -49,10 +51,12 @@ fun PowerButton(
     statusLabel: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    diameter: Dp = 156.dp,
 ) {
     val accent = when (state) {
         PowerState.On -> Accent
         PowerState.Starting -> Accent.copy(alpha = 0.6f)
+        PowerState.Paused -> Warning
         PowerState.Error -> Danger
         PowerState.Off -> TextMuted
     }
@@ -81,9 +85,11 @@ fun PowerButton(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        val outerDp = diameter + 16.dp
+        val innerDp = diameter * 0.62f
         Box(
             modifier = Modifier
-                .size(184.dp)
+                .size(outerDp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
@@ -96,15 +102,14 @@ fun PowerButton(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(modifier = Modifier.size(168.dp)) {
-                val stroke = 6.dp.toPx()
+            Canvas(modifier = Modifier.size(diameter)) {
+                val stroke = 5.dp.toPx()
                 val inset = stroke / 2f
                 val arcSize = androidx.compose.ui.geometry.Size(
                     size.width - inset * 2,
                     size.height - inset * 2,
                 )
                 val topLeft = Offset(inset, inset)
-                // base ring
                 drawArc(
                     color = OutlineSoft,
                     startAngle = 0f,
@@ -115,67 +120,56 @@ fun PowerButton(
                     style = Stroke(width = stroke, cap = StrokeCap.Round),
                 )
                 when (state) {
-                    PowerState.On -> {
-                        drawArc(
-                            color = accent.copy(alpha = pulse),
-                            startAngle = -90f,
-                            sweepAngle = 360f,
-                            useCenter = false,
-                            topLeft = topLeft,
-                            size = arcSize,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round),
-                        )
-                    }
-                    PowerState.Starting -> {
-                        drawArc(
-                            color = accent,
-                            startAngle = spinPhase,
-                            sweepAngle = 110f,
-                            useCenter = false,
-                            topLeft = topLeft,
-                            size = arcSize,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round),
-                        )
-                    }
-                    PowerState.Error -> {
-                        drawArc(
-                            color = Danger,
-                            startAngle = -90f,
-                            sweepAngle = 360f,
-                            useCenter = false,
-                            topLeft = topLeft,
-                            size = arcSize,
-                            style = Stroke(
-                                width = stroke,
-                                cap = StrokeCap.Round,
-                                pathEffect = PathEffect.dashPathEffect(
-                                    intervals = floatArrayOf(20f, 14f),
-                                ),
+                    PowerState.On -> drawArc(
+                        color = accent.copy(alpha = pulse),
+                        startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                        topLeft = topLeft, size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round),
+                    )
+                    PowerState.Paused -> drawArc(
+                        color = accent.copy(alpha = pulse * 0.9f),
+                        startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                        topLeft = topLeft, size = arcSize,
+                        style = Stroke(
+                            width = stroke, cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(
+                                intervals = floatArrayOf(12f, 10f),
                             ),
-                        )
-                    }
-                    PowerState.Off -> {
-                        drawArc(
-                            color = AccentDim.copy(alpha = 0.35f),
-                            startAngle = -90f,
-                            sweepAngle = 360f,
-                            useCenter = false,
-                            topLeft = topLeft,
-                            size = arcSize,
-                            style = Stroke(
-                                width = stroke,
-                                cap = StrokeCap.Round,
-                                pathEffect = PathEffect.dashPathEffect(
-                                    intervals = floatArrayOf(4f, 14f),
-                                ),
+                        ),
+                    )
+                    PowerState.Starting -> drawArc(
+                        color = accent,
+                        startAngle = spinPhase, sweepAngle = 110f, useCenter = false,
+                        topLeft = topLeft, size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round),
+                    )
+                    PowerState.Error -> drawArc(
+                        color = Danger,
+                        startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                        topLeft = topLeft, size = arcSize,
+                        style = Stroke(
+                            width = stroke, cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(
+                                intervals = floatArrayOf(20f, 14f),
                             ),
-                        )
-                    }
+                        ),
+                    )
+                    PowerState.Off -> drawArc(
+                        color = AccentDim.copy(alpha = 0.35f),
+                        startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                        topLeft = topLeft, size = arcSize,
+                        style = Stroke(
+                            width = stroke, cap = StrokeCap.Round,
+                            pathEffect = PathEffect.dashPathEffect(
+                                intervals = floatArrayOf(4f, 14f),
+                            ),
+                        ),
+                    )
                 }
             }
             Box(
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(innerDp)
                     .clip(CircleShape)
                     .background(SurfaceLow),
                 contentAlignment = Alignment.Center,
@@ -184,22 +178,23 @@ fun PowerButton(
                     imageVector = Icons.Rounded.PowerSettingsNew,
                     contentDescription = "Power",
                     tint = accent,
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier.size(diameter * 0.32f),
                 )
             }
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(12.dp))
         Text(
             text = statusLabel.uppercase(),
             style = MaterialTheme.typography.labelLarge,
             color = accent,
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             text = when (state) {
                 PowerState.On -> "tap to disable"
                 PowerState.Off -> "tap to enable"
                 PowerState.Starting -> "establishing tunnel..."
+                PowerState.Paused -> "still listening · waiting for mobile data"
                 PowerState.Error -> "tap to retry"
             },
             style = MaterialTheme.typography.bodyMedium,

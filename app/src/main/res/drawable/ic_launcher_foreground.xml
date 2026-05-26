@@ -4,13 +4,23 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Bolt on accent green, centered safe zone -->
-    <path
-        android:fillColor="#3DDC97"
-        android:pathData="M58,28 L42,60 L52,60 L48,80 L66,48 L56,48 Z" />
-    <!-- Soft outer ring suggesting "network/link" -->
+    <!-- Outer ring -->
     <path
         android:strokeColor="#1B6E51"
-        android:strokeWidth="2"
-        android:pathData="M54,30 m-22,0 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0" />
+        android:strokeWidth="0.8"
+        android:fillColor="#00000000"
+        android:pathData="M54,54 m-36,0 a36,36 0 1,0 72,0 a36,36 0 1,0 -72,0" />
+    <!-- Inner ring -->
+    <path
+        android:strokeColor="#1B6E51"
+        android:strokeWidth="0.4"
+        android:fillColor="#00000000"
+        android:pathData="M54,54 m-31,0 a31,31 0 1,0 62,0 a31,31 0 1,0 -62,0" />
+    <!-- Lightning bolt -->
+    <path
+        android:fillColor="#3DDC97"
+        android:pathData="M60,26 L40,60 L52,60 L48,82 L68,46 L56,46 Z"
+        android:strokeColor="#0a0a0a"
+        android:strokeWidth="0.4"
+        android:strokeLineJoin="round" />
 </vector>

@@ -1,79 +1,122 @@
+<div align="center">
+
+<img src="docs/icon.png" alt="DataProxy logo" width="128" height="128" />
+
 # DataProxy
 
-A black-themed Android SOCKS5 proxy server that accepts inbound connections on
-your Wi-Fi / LAN and forces every outbound connection through the device's
-**cellular network only**.
+**Turn your Android phone into a SOCKS5 proxy whose traffic always goes out over mobile data.**
 
-Think of it as turning your phone into a tiny gateway: laptops or other phones
-on the same Wi-Fi point their SOCKS5 settings at `phone-ip:1080`, and their
-traffic egresses via your SIM's mobile data — bypassing the local Wi-Fi
-entirely.
+[![Release](https://img.shields.io/github/v/release/Sir-MmD/dataproxy?style=flat-square&color=3DDC97&label=release)](https://github.com/Sir-MmD/dataproxy/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-3DDC97?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-3DDC97?style=flat-square)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.0-3DDC97?style=flat-square&logo=kotlin&logoColor=black)](https://kotlinlang.org)
 
-> **Latest release:** [v0.1 APK](../../releases/latest) (signed, ready to side-load)
+</div>
 
-## Features
+## What it does
 
-- **Per-socket cellular binding** via `ConnectivityManager.requestNetwork(TRANSPORT_CELLULAR)` + `Network.bindSocket()` — the official Android API for pinning egress to a specific transport.
-- **SOCKS5 (RFC 1928)** server, no-auth, supports IPv4 / IPv6 / domain ATYP and the CONNECT command. DNS for hostname targets is resolved on the cellular network so you don't leak via Wi-Fi DNS.
-- **Listen-address picker** — `0.0.0.0` (any interface) plus every detected non-loopback IPv4 (Wi-Fi, USB tether, ethernet).
-- **Foreground service** with a persistent ongoing notification so Android won't kill the listener when the UI is backgrounded.
-- **Live stats** — real-time upload/download speed (log-scaled bars), cumulative bytes per direction, per-client (IP) device list.
-- **Battery-optimization prompt** — first-run banner that fires the system
-  `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` dialog (or falls back to
-  Settings on stripped OEM ROMs).
-- **True OLED-black theme** (`#000000`), mint-green accent, monospaced numerics.
-
-## Project layout
+Your laptop (or any device on the same Wi-Fi) points its SOCKS5 settings at
+`phone-ip:1080`. DataProxy listens there, and pins every outbound socket to
+the phone's **cellular** network — so the egress goes through mobile data even
+when Wi-Fi is the default. Other apps on the phone are untouched; only the
+sockets DataProxy creates are pinned.
 
 ```
-app/src/main/
-├── AndroidManifest.xml
-├── java/com/dataproxy/
-│   ├── MainActivity.kt              # entrypoint, battery-opt prompt
-│   ├── DataProxyApplication.kt
-│   ├── network/
-│   │   ├── CellularNetworkProvider.kt   # ConnectivityManager wrapper
-│   │   └── NetworkInterfaceLister.kt    # local IP enumeration
-│   ├── proxy/
-│   │   ├── Socks5Server.kt              # accept loop
-│   │   ├── Socks5Connection.kt          # RFC 1928 handshake + relay
-│   │   └── ConnectionRegistry.kt        # device + traffic accounting
-│   ├── service/
-│   │   └── ProxyService.kt              # foreground host, notification
-│   ├── ui/                              # Compose + Material3 + black theme
-│   └── util/
-└── res/
+laptop  ── SOCKS5 over Wi-Fi ──▶  📱 DataProxy  ── TCP over LTE ──▶  internet
+                                       │
+                                       └─ Network.bindSocket() forces
+                                          egress onto the cellular Network
 ```
+
+## Screenshot
+
+<div align="center">
+  <img src="docs/screenshots/home.png" alt="DataProxy home screen" width="320" />
+</div>
 
 ## Install
 
-The fastest path is the **GitHub release**:
+Grab the latest **signed APK** from the
+[releases page](https://github.com/Sir-MmD/dataproxy/releases/latest) and
+side-load:
 
-1. Download `app-release.apk` from the [latest release](../../releases/latest).
-2. Transfer to your phone (or `adb install app-release.apk` from your computer).
-3. Allow "install from unknown sources" if prompted.
-4. Launch DataProxy.
+```bash
+adb install DataProxy-v0.2.apk
+```
 
-> The release APK is signed with a self-signed certificate — Android may show
-> a warning the first time you install it. That's expected for side-loaded
-> apps.
+Or download to the phone and tap to install (allow "install from unknown
+sources" if prompted).
+
+> The APK is signed with a self-signed certificate — Android will show the
+> usual side-load warning on first install. That's expected.
+
+## Quickstart
+
+1. **Launch DataProxy.** On first run it'll ask permission to ignore battery
+   optimisation — say yes, otherwise Android Doze can kill the proxy after a
+   few minutes off-screen.
+2. **Tap the power button.** If mobile data is off, DataProxy will say so and
+   offer to open the right system settings panel.
+3. **Wire up a client.** From your laptop on the same Wi-Fi:
+   ```bash
+   curl --socks5-hostname <phone-ip>:1080 https://ifconfig.me
+   ```
+   You should see your **cellular** public IP, not your home Wi-Fi's.
+
+## Features
+
+| | |
+|---|---|
+| ⚡ **Cellular pinning** | `ConnectivityManager.requestNetwork(TRANSPORT_CELLULAR)` + `Network.bindSocket()` per outbound. No root, no VPN service. |
+| 🔌 **SOCKS5 (RFC 1928)** | No-auth, CONNECT, IPv4 / IPv6 / domain ATYP. Hostname DNS is resolved on the cellular network — no Wi-Fi DNS leak. |
+| 🌐 **Listen anywhere** | Bind to `0.0.0.0` or pick a specific interface (Wi-Fi, USB tether, ethernet). |
+| 📊 **Live metrics** | Real-time speed bars, cumulative traffic per direction, per-client device list. |
+| 🔋 **Auto-pause on data loss** | If mobile data drops mid-session the proxy pauses (listener stays alive) and auto-resumes when data is back — no manual restart. |
+| 🛡️ **Foreground service** | Persistent notification keeps the proxy running with the screen off. |
+| 🎨 **OLED-black UI** | True `#000000` background, mint accent, monospaced numerics. One-screen layout — no scrolling. |
+
+## How it works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                            phone                                 │
+│                                                                  │
+│   Wi-Fi iface                            cellular iface          │
+│   ┌────────────┐                         ┌──────────────┐        │
+│   │ 192.168.x.y│                         │ 10.x.x.x     │        │
+│   └─────▲──────┘                         └──────▲───────┘        │
+│         │                                       │                │
+│         │ accept                       bindSocket│                │
+│   ┌─────┴───────┐                         ┌────┴─────┐           │
+│   │ ServerSocket│   relay (in-process)    │  Socket  │           │
+│   │  :1080      │ ◀───────────────────▶  │  bound   │           │
+│   └─────────────┘                         │  to cell │           │
+│                                           └──────────┘           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+DataProxy holds a long-lived reference to the cellular `Network` object via
+`ConnectivityManager.requestNetwork`. Every outbound socket it creates is
+explicitly bound to that network with `Network.bindSocket(socket)`, which
+forces its egress over LTE regardless of which network is the system
+default. The OS routing table is untouched — other apps see no change.
 
 ## Build from source
 
-Requirements:
-- Android Studio Ladybug+ (or Gradle ≥ 8.10 with Android SDK installed)
-- JDK 17 or newer (Android Studio bundles JDK 21 — that's what was used to build the v0.1 release)
-- Android SDK platform `android-36`
+You'll need Android Studio Ladybug+ (or Gradle ≥ 8.10 with the Android SDK)
+and JDK 17+. Android Studio's bundled JBR (Java 21) is what was used to ship
+v0.2.
 
 ```bash
 git clone https://github.com/Sir-MmD/dataproxy.git
 cd dataproxy
 
-# Debug build (signed with the auto-generated debug key — fine for testing)
+# Debug build (uses the auto-generated debug key — fine for testing)
 ./gradlew :app:installDebug
 ```
 
-To produce a signed **release** APK, generate your own keystore first:
+For a **release** APK, generate your own keystore first (the one used to sign
+the published APK is intentionally not in this repo):
 
 ```bash
 mkdir -p app/keystore
@@ -87,66 +130,63 @@ keytool -genkeypair -v \
 # → app/build/outputs/apk/release/app-release.apk
 ```
 
-Override the passwords via env vars if you don't want them in `build.gradle.kts`:
-`DATAPROXY_KEYSTORE_PASSWORD`, `DATAPROXY_KEY_ALIAS`, `DATAPROXY_KEY_PASSWORD`.
+Pass `DATAPROXY_KEYSTORE_PASSWORD`, `DATAPROXY_KEY_ALIAS`,
+`DATAPROXY_KEY_PASSWORD` env vars to override the defaults. If the keystore
+file is missing entirely, the release APK is built **unsigned** — sign it
+yourself with `apksigner`.
 
-If the keystore is missing, the release APK is built **unsigned**; sign it
-yourself with `apksigner` afterwards.
-
-## Using the app
-
-1. **Launch DataProxy.** If the battery-optimization banner appears, tap **Allow**
-   and confirm the system dialog. Without this, Android Doze can suspend the
-   proxy after a few minutes of screen-off.
-2. **Pick a listen address.** `0.0.0.0` lets clients on any of your phone's
-   interfaces connect; choose a specific Wi-Fi IP if you only want LAN
-   reachability.
-3. **Hit the power button.** The service will request a cellular network
-   (mobile data must be enabled — you can have Wi-Fi on simultaneously, that's
-   the whole point), bind the listener, and turn the ring mint-green.
-4. **Point clients at it.** On a laptop:
-   - macOS / Linux: `curl --socks5-hostname phone-ip:1080 https://example.com`
-   - Browser: configure SOCKS5 in network settings, `phone-ip` port `1080`.
-   - SSH: `ssh -o "ProxyCommand=nc -X 5 -x phone-ip:1080 %h %p" user@host`
-5. As clients connect they appear in **Connected devices** (grouped by source
-   IP); the speedometer and totals update every second.
-
-## How the cellular pinning works
+## Project layout
 
 ```
-LAN client  --(SOCKS5 over Wi-Fi)-->  DataProxy (phone)  --(TCP over LTE)-->  Internet
-                                          │
-                                          └── Network.bindSocket() forces
-                                              every outbound socket onto
-                                              the cellular Network object,
-                                              regardless of system default.
+app/src/main/java/com/dataproxy/
+├── MainActivity.kt              ← entry-point, dialogs, nav state
+├── DataProxyApplication.kt
+├── network/
+│   ├── CellularNetworkProvider.kt   ← requestNetwork + bindSocket
+│   └── NetworkInterfaceLister.kt    ← local IP enumeration
+├── proxy/
+│   ├── Socks5Server.kt              ← accept loop
+│   ├── Socks5Connection.kt          ← RFC 1928 handshake + relay
+│   └── ConnectionRegistry.kt        ← per-client accounting
+├── service/
+│   └── ProxyService.kt              ← foreground, auto-pause/resume
+├── ui/
+│   ├── theme/                       ← OLED-black Material3 theme
+│   ├── screens/
+│   │   ├── AppNav.kt                ← tab switching + dialogs
+│   │   ├── HomeScreen.kt            ← power button, stats, nav tiles
+│   │   ├── ListenAddressScreen.kt
+│   │   └── DevicesScreen.kt
+│   └── components/                  ← power button, cards, etc.
+└── util/
+    ├── ByteFormatter.kt
+    ├── CellularAvailability.kt      ← pre-flight check
+    └── BatteryOptimizationHelper.kt
 ```
-
-The phone's own routing table is untouched — only the sockets DataProxy
-creates are pinned. Other apps on the phone continue using whichever network
-Android picks for them.
 
 ## Permissions
 
-- `INTERNET`, `ACCESS_NETWORK_STATE`, `CHANGE_NETWORK_STATE` — to request and
-  bind cellular networks.
-- `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC` — long-lived service.
-- `POST_NOTIFICATIONS` (API 33+) — for the ongoing status notification.
-- `WAKE_LOCK` — keep the CPU running while connections are active.
-- `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` — to surface the system whitelist
-  dialog; the user still grants it explicitly.
+| Permission | Why |
+|---|---|
+| `INTERNET`, `ACCESS_NETWORK_STATE`, `CHANGE_NETWORK_STATE` | request and bind cellular networks |
+| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC` | long-lived listener |
+| `POST_NOTIFICATIONS` (API 33+) | the ongoing status notification |
+| `WAKE_LOCK` | keep CPU running while connections are active |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | first-launch friendly-prompt only — user grants it |
 
 ## Caveats
 
-- **Mobile data must be enabled** — even if Wi-Fi is providing your default
-  internet, DataProxy needs the cellular network to be up so it can route
-  through it. If cellular is missing, the connect call replies with
-  `Network unreachable (0x03)` per RFC 1928.
-- **Carrier policies** can block tethering-style traffic; some carriers detect
-  and throttle. DataProxy does not work around this.
-- **CONNECT only** — UDP-ASSOCIATE and BIND commands aren't implemented. That
-  covers ~all real-world SOCKS5 traffic (HTTP, HTTPS, SSH) but rules out
-  some QUIC / DNS-over-UDP setups.
-- **No authentication** — anyone on the listen interface can use the proxy.
-  Pin the listen address to a LAN-only IP, or run behind a Wi-Fi network you
-  trust.
+- **Mobile data must be enabled.** Wi-Fi can be on too — that's the whole
+  point — but cellular needs to be up. DataProxy detects this and pops a
+  friendly dialog with a shortcut to mobile-data settings.
+- **CONNECT only.** UDP-ASSOCIATE and BIND aren't implemented (covers
+  basically all real-world HTTP / HTTPS / SSH; rules out some QUIC and
+  DNS-over-UDP setups).
+- **No authentication on the SOCKS5 listener.** Pin the listen address to a
+  LAN-only IP, or only run on Wi-Fi networks you trust.
+- **Carrier tethering policies** may detect and throttle the traffic
+  pattern. DataProxy doesn't try to disguise itself.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

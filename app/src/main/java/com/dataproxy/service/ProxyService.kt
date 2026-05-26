@@ -50,6 +50,7 @@ class ProxyService : Service() {
 
     private var server: Socks5Server? = null
     private var publishJob: Job? = null
+    private var cellularWatchJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val _state = MutableStateFlow<State>(State.Stopped)
@@ -64,6 +65,8 @@ class ProxyService : Service() {
         data object Stopped : State
         data class Starting(val bindAddress: String, val port: Int) : State
         data class Running(val bindAddress: String, val port: Int) : State
+        /** Listener still bound; cellular link is gone, so outbound connects fail. */
+        data class Paused(val bindAddress: String, val port: Int, val reason: String) : State
         data class Error(val message: String) : State
     }
 
@@ -140,6 +143,7 @@ class ProxyService : Service() {
                 _state.value = State.Running(bindAddress, port)
                 acquireWakeLock()
                 startSampling()
+                startCellularWatch(bindAddress, port)
                 updateNotification(bindAddress, port, totals.value, rates.value)
             }
         }
@@ -147,6 +151,7 @@ class ProxyService : Service() {
 
     fun stopProxy() {
         publishJob?.cancel(); publishJob = null
+        cellularWatchJob?.cancel(); cellularWatchJob = null
         server?.stop(); server = null
         cellular.stop()
         registry.reset()
@@ -154,6 +159,39 @@ class ProxyService : Service() {
         releaseWakeLock()
         _state.value = State.Stopped
         stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    /**
+     * Listen for cellular drops while the proxy is up.
+     * Drop → Paused (listener stays, new connects fail until data is back).
+     * Recovery → back to Running.
+     */
+    private fun startCellularWatch(addr: String, port: Int) {
+        cellularWatchJob?.cancel()
+        cellularWatchJob = scope.launch {
+            cellular.state.collect { cs ->
+                val cur = _state.value
+                when (cs) {
+                    is CellularNetworkProvider.State.Available -> {
+                        if (cur is State.Paused) {
+                            _state.value = State.Running(addr, port)
+                            updateNotification(addr, port, totals.value, rates.value)
+                        }
+                    }
+                    is CellularNetworkProvider.State.Lost,
+                    is CellularNetworkProvider.State.Unavailable -> {
+                        if (cur is State.Running) {
+                            _state.value = State.Paused(
+                                addr, port,
+                                "Waiting for mobile data",
+                            )
+                            updateNotification(addr, port, totals.value, rates.value)
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------- foreground
@@ -177,9 +215,10 @@ class ProxyService : Service() {
                 val (up, down) = registry.snapshotBytes()
                 sampler.sample(up, down)
                 registry.publish()
-                val s = _state.value
-                if (s is State.Running) {
-                    updateNotification(s.bindAddress, s.port, totals.value, rates.value)
+                when (val s = _state.value) {
+                    is State.Running -> updateNotification(s.bindAddress, s.port, totals.value, rates.value)
+                    is State.Paused -> updateNotification(s.bindAddress, s.port, totals.value, rates.value)
+                    else -> Unit
                 }
                 delay(1000L)
             }
@@ -211,8 +250,10 @@ class ProxyService : Service() {
             Intent(this, ProxyService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val title = "DataProxy · $addr:$port"
-        val sub = "${totals.active} conn  ·  ↑${humanRate(rates.upBps)}  ↓${humanRate(rates.downBps)}"
+        val isPaused = _state.value is State.Paused
+        val title = if (isPaused) "DataProxy · paused" else "DataProxy · $addr:$port"
+        val sub = if (isPaused) "Waiting for mobile data"
+        else "${totals.active} conn  ·  ↑${humanRate(rates.upBps)}  ↓${humanRate(rates.downBps)}"
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_proxy)
             .setContentTitle(title)
