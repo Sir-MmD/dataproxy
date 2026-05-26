@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.DataProxy" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/dataproxy_ink</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
+    </style>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Bolt on accent green, centered safe zone -->
+    <path
+        android:fillColor="#3DDC97"
+        android:pathData="M58,28 L42,60 L52,60 L48,80 L66,48 L56,48 Z" />
+    <!-- Soft outer ring suggesting "network/link" -->
+    <path
+        android:strokeColor="#1B6E51"
+        android:strokeWidth="2"
+        android:pathData="M54,30 m-22,0 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0" />
+</vector>
