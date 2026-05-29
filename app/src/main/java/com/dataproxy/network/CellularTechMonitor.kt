@@ -1,6 +1,7 @@
 package com.dataproxy.network
 
 import android.content.Context
+import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,10 +50,14 @@ class CellularTechMonitor(context: Context) {
     }
 
     private fun read(): TechState {
-        val on = runCatching { tm.isDataEnabled }.getOrNull() ?: return TechState.Unknown
+        // Bind to the data subscription's TelephonyManager so a dual-SIM device
+        // reports the SIM that's actually carrying data, not whichever sub
+        // happens to be the system default (often the voice SIM).
+        val t = dataTelephonyManager()
+        val on = runCatching { t.isDataEnabled }.getOrNull() ?: return TechState.Unknown
         if (!on) return TechState.DataOff
-        val type = runCatching { tm.dataNetworkType }.getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
-        val operator = runCatching { tm.networkOperatorName }.getOrDefault("").orEmpty().trim()
+        val type = runCatching { t.dataNetworkType }.getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
+        val operator = operatorName(t)
         val tech = when (type) {
             TelephonyManager.NETWORK_TYPE_GPRS,
             TelephonyManager.NETWORK_TYPE_EDGE,
@@ -80,6 +85,25 @@ class CellularTechMonitor(context: Context) {
             else -> null
         } ?: return if (operator.isNotEmpty()) TechState.OperatorOnly(operator) else TechState.Unknown
         return TechState.Tech(label = tech, operator = operator)
+    }
+
+    /** TelephonyManager bound to the default *data* subscription (handles dual-SIM). */
+    private fun dataTelephonyManager(): TelephonyManager {
+        val subId = SubscriptionManager.getDefaultDataSubscriptionId()
+        if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return tm
+        return runCatching { tm.createForSubscriptionId(subId) }.getOrDefault(tm)
+    }
+
+    /**
+     * Prefer the SIM's own carrier name (SPN) — it's the stable identity of the
+     * user's carrier and doesn't flicker to a blank / transient value during
+     * network re-registration the way the *registered-network* name can. Fall
+     * back to the registered-network name only when the SIM name is blank.
+     */
+    private fun operatorName(t: TelephonyManager): String {
+        val sim = runCatching { t.simOperatorName }.getOrNull()?.trim().orEmpty()
+        if (sim.isNotEmpty()) return sim
+        return runCatching { t.networkOperatorName }.getOrNull()?.trim().orEmpty()
     }
 
     sealed interface TechState {

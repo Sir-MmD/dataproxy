@@ -17,6 +17,7 @@ import com.dataproxy.proxy.ConnectionRegistry
 import com.dataproxy.proxy.SpeedSampler
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.theme.ThemeMode
+import com.dataproxy.util.AntiKillPreferences
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,11 +31,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         app.getSharedPreferences(ProxyService.PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _bindAddress = MutableStateFlow(
-        prefs.getString(KEY_BIND_ADDRESS, "0.0.0.0") ?: "0.0.0.0"
+        prefs.getString(ProxyService.PREF_BIND_ADDRESS, "0.0.0.0") ?: "0.0.0.0"
     )
     val bindAddress: StateFlow<String> = _bindAddress.asStateFlow()
 
-    private val _port = MutableStateFlow(prefs.getInt(KEY_PORT, ProxyService.DEFAULT_PORT))
+    private val _port = MutableStateFlow(prefs.getInt(ProxyService.PREF_PORT, ProxyService.DEFAULT_PORT))
     val port: StateFlow<Int> = _port.asStateFlow()
 
     private val _interfaces = MutableStateFlow<List<NetworkInterfaceLister.Candidate>>(emptyList())
@@ -78,6 +79,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         ThemeMode.fromKey(prefs.getString(KEY_THEME_MODE, null))
     )
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    private val _autoStartOnBoot = MutableStateFlow(AntiKillPreferences.autoStartOnBoot(app))
+    val autoStartOnBoot: StateFlow<Boolean> = _autoStartOnBoot.asStateFlow()
 
     private var bound: ProxyService? = null
     private val collectors = mutableListOf<Job>()
@@ -128,12 +132,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectBindAddress(addr: String) {
         _bindAddress.value = addr
-        prefs.edit().putString(KEY_BIND_ADDRESS, addr).apply()
+        prefs.edit().putString(ProxyService.PREF_BIND_ADDRESS, addr).apply()
     }
 
     fun selectPort(p: Int) {
         _port.value = p
-        prefs.edit().putInt(KEY_PORT, p).apply()
+        prefs.edit().putInt(ProxyService.PREF_PORT, p).apply()
     }
 
     fun setAuthEnabled(enabled: Boolean) {
@@ -149,6 +153,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setAuthPassword(value: String) {
         _authPassword.value = value
         prefs.edit().putString(ProxyService.PREF_AUTH_PASSWORD, value).apply()
+    }
+
+    fun setAutoStartOnBoot(enabled: Boolean) {
+        AntiKillPreferences.setAutoStartOnBoot(getApplication(), enabled)
+        _autoStartOnBoot.value = enabled
     }
 
     fun cycleThemeMode() {
@@ -185,8 +194,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        private const val KEY_BIND_ADDRESS = "bind_address"
-        private const val KEY_PORT = "port"
         private const val KEY_THEME_MODE = "theme_mode"
     }
 }

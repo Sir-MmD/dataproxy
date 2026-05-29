@@ -220,10 +220,16 @@ class ProxyService : Service() {
     private fun startForegroundNow(addr: String, port: Int) {
         val notif = buildNotification(addr, port, totals.value, rates.value)
         if (Build.VERSION.SDK_INT >= 34) {
+            // specialUse (not dataSync): dataSync foreground services can't be
+            // started from a BOOT_COMPLETED receiver on Android 15+, which would
+            // break auto-start-on-boot. specialUse is exempt from that rule and
+            // works for both UI-initiated and boot-initiated starts. DataProxy
+            // ships via GitHub, not Play, so the Play specialUse review gate
+            // (which doesn't affect runtime) is a non-issue. See BootReceiver.
             startForeground(
                 NOTIF_ID,
                 notif,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
             )
         } else {
             startForeground(NOTIF_ID, notif)
@@ -359,6 +365,10 @@ class ProxyService : Service() {
         const val PREF_AUTH_ENABLED = "auth_enabled"
         const val PREF_AUTH_USERNAME = "auth_username"
         const val PREF_AUTH_PASSWORD = "auth_password"
+        // Last-chosen listen address + port. Written by MainViewModel; read by
+        // BootReceiver so an auto-start uses the same endpoint as the UI.
+        const val PREF_BIND_ADDRESS = "bind_address"
+        const val PREF_PORT = "port"
 
         fun startIntent(ctx: Context, addr: String, port: Int) =
             Intent(ctx, ProxyService::class.java)

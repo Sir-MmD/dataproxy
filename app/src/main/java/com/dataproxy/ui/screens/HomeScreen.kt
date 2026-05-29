@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Router
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -67,6 +68,7 @@ fun HomeScreen(
     onOpenListen: () -> Unit,
     onOpenDevices: () -> Unit,
     onOpenAuth: () -> Unit,
+    onOpenAntiKill: () -> Unit,
     themeMode: ThemeMode,
     onCycleTheme: () -> Unit,
     onHeaderClick: () -> Unit,
@@ -109,6 +111,7 @@ fun HomeScreen(
             themeMode = themeMode,
             onCycleTheme = onCycleTheme,
             onNetworkClick = onHeaderClick,
+            onOpenAntiKill = onOpenAntiKill,
         )
         Spacer(Modifier.height(10.dp))
         Box(
@@ -173,6 +176,7 @@ private fun Header(
     themeMode: ThemeMode,
     onCycleTheme: () -> Unit,
     onNetworkClick: () -> Unit,
+    onOpenAntiKill: () -> Unit,
 ) {
     val isOff = tech is CellularTechMonitor.TechState.DataOff
     Row(
@@ -243,25 +247,57 @@ private fun Header(
                 else -> "—"
             }
         }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onNetworkClick)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-        ) {
-            StatusDot(color = dotColor)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = label,
-                color = if (isOff) Danger else TextSecondary,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = if (label.length <= 6) 13.sp else 11.sp,
-                ),
-                maxLines = 1,
-            )
+        Column(horizontalAlignment = Alignment.End) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onNetworkClick)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+            ) {
+                StatusDot(color = dotColor)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = label,
+                    color = if (isOff) Danger else TextSecondary,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = if (label.length <= 6) 13.sp else 11.sp,
+                    ),
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            AntiKillChip(onClick = onOpenAntiKill)
         }
+    }
+}
+
+@Composable
+private fun AntiKillChip(onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Accent.copy(alpha = 0.12f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Shield,
+            contentDescription = null,
+            tint = Accent,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = "Anti-Kill",
+            color = Accent,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Medium,
+            ),
+            maxLines = 1,
+        )
     }
 }
 
@@ -365,7 +401,7 @@ private fun Footer() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "v1.1.0",
+                text = "v1.2",
                 color = TextMuted,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = FontFamily.Monospace,

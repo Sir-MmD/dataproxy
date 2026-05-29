@@ -26,7 +26,10 @@ import com.dataproxy.ui.screens.AppNav
 import com.dataproxy.ui.screens.Tab
 import com.dataproxy.ui.theme.DataProxyTheme
 import com.dataproxy.ui.viewmodel.MainViewModel
+import com.dataproxy.util.AntiKillPreferences
+import com.dataproxy.util.AntiKillStep
 import com.dataproxy.util.BatteryOptimizationHelper
+import com.dataproxy.util.OemHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -74,11 +77,27 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf(BatteryOptimizationHelper.isIgnoring(this))
                 }
                 var phoneGranted by remember { mutableStateOf(!needsPhonePermission()) }
+                // OEM survival steps — not system-detectable, so we surface the
+                // user's persisted "I've done this" flag (also editable on the
+                // Anti-Kill screen). Shown in the perms dialog alongside the
+                // auto-detectable ones.
+                var autoStartDone by remember {
+                    mutableStateOf(AntiKillPreferences.stepDone(this, AntiKillStep.AutoStart))
+                }
+                var backgroundDone by remember {
+                    mutableStateOf(AntiKillPreferences.stepDone(this, AntiKillStep.BackgroundActivity))
+                }
+                var lockRecentsDone by remember {
+                    mutableStateOf(AntiKillPreferences.stepDone(this, AntiKillStep.LockInRecents))
+                }
                 LaunchedEffect(Unit) {
                     while (true) {
                         notifGranted = !needsNotifPermission()
                         battGranted = BatteryOptimizationHelper.isIgnoring(this@MainActivity)
                         phoneGranted = !needsPhonePermission()
+                        autoStartDone = AntiKillPreferences.stepDone(this@MainActivity, AntiKillStep.AutoStart)
+                        backgroundDone = AntiKillPreferences.stepDone(this@MainActivity, AntiKillStep.BackgroundActivity)
+                        lockRecentsDone = AntiKillPreferences.stepDone(this@MainActivity, AntiKillStep.LockInRecents)
                         delay(1500)
                     }
                 }
@@ -137,6 +156,24 @@ class MainActivity : ComponentActivity() {
                     onAllowNotif = { requestNotifPermission() },
                     onAllowBatt = { requestBatteryOptIgnore() },
                     onAllowPhone = { requestPhonePermission() },
+                    autoStartDone = autoStartDone,
+                    backgroundDone = backgroundDone,
+                    lockRecentsDone = lockRecentsDone,
+                    onOpenAutoStart = {
+                        OemHelper.openAutoStart(this)
+                        AntiKillPreferences.setStepDone(this, AntiKillStep.AutoStart, true)
+                        autoStartDone = true
+                    },
+                    onOpenBackground = {
+                        OemHelper.openBackgroundActivity(this)
+                        AntiKillPreferences.setStepDone(this, AntiKillStep.BackgroundActivity, true)
+                        backgroundDone = true
+                    },
+                    onOpenLockRecents = {
+                        OemHelper.openLockInRecentsGuide(this)
+                        AntiKillPreferences.setStepDone(this, AntiKillStep.LockInRecents, true)
+                        lockRecentsDone = true
+                    },
                     showMobileDataDialog = showMobileDataDialog,
                     onDismissMobileDataDialog = { showMobileDataDialog = false },
                     onOpenMobileDataSettings = {

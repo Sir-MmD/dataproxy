@@ -66,6 +66,13 @@ are network‑bound to cellular.
   and a per‑client device list (deduplicated by IP, ordered by activity).
 - **Foreground service.** Keeps running with the screen off, with a
   persistent low‑importance status notification.
+- **Anti‑Kill survival hub.** A dedicated screen that surfaces the OEM
+  settings — battery optimisation, auto‑launch, background activity, and the
+  Recents lock — that stop aggressive Android skins from killing the proxy,
+  with live status and per‑vendor deep links. The same prompts are folded
+  into the start‑up permissions dialog.
+- **Auto‑start on boot.** Optional: the proxy relaunches itself after the
+  phone reboots.
 - **Auth subscreen.** RFC 1929 username/password, toggle without
   restarting the proxy.
 - **Light / dark / system theming.** Per‑theme palette in a Compose
@@ -79,8 +86,8 @@ are network‑bound to cellular.
 MainActivity ────────────────▶ MainViewModel ──────▶ ProxyService (foreground)
    │                              │                        │
    │ Jetpack Compose UI           │  ServiceConnection     │
-   │ — Home / Listen /            │  + StateFlow mirror    │
-   │   Devices / Auth screens     │                        │
+   │ — Home / Listen / Devices /  │  + StateFlow mirror    │
+   │   Auth / Anti‑Kill screens   │                        │
    │                              │                        ▼
    │                              │             Socks5Server (listener)
    │                              │                    │
@@ -103,7 +110,8 @@ MainActivity ────────────────▶ MainViewModel �
 | `MainViewModel` | Mirrors `ProxyService` state via `ServiceConnection`; owns `CellularTechMonitor` and shared‑prefs state |
 | `ProxyService` | Foreground service, lifecycle of the listener and cellular handle, single `fullCleanup()` invoked on every start *and* stop |
 | `CellularNetworkProvider` | Lazy singleton holding the cellular `Network`; per‑socket `bindSocket()` for egress; `awaitAvailable()` with a 15 s timeout |
-| `CellularTechMonitor` | Polls `TelephonyManager.dataNetworkType` + `networkOperatorName` every 2 s; surfaces `DataOff` / `Tech("4G")` / etc. |
+| `CellularTechMonitor` | Polls the *data* subscription's `TelephonyManager` every 2 s for `dataNetworkType` + SIM operator name (dual‑SIM safe, stable carrier label); surfaces `DataOff` / `Tech("4G")` / etc. |
+| `BootReceiver` | Relaunches `ProxyService` after `BOOT_COMPLETED` when auto‑start is enabled; reads the saved listen address / port |
 | `Socks5Server` | `ServerSocket` accept loop, dispatches each client to a `Socks5Connection` on its own coroutine |
 | `Socks5Connection` | RFC 1928 negotiation, RFC 1929 auth, `CONNECT` tunnel with bidirectional copy; `SO_LINGER=0` RST on failed handshakes so carrier NAT entries don't linger |
 | `Socks5UdpRelay` | Dual‑socket UDP relay: client side bound to the same listen address, remote side bound to cellular; rejects `FRAG != 0` |
@@ -118,7 +126,7 @@ MainActivity ────────────────▶ MainViewModel �
 | Async | **kotlinx.coroutines** + **Flow / StateFlow** | Cooperative cancellation throughout the proxy + UI |
 | Networking | `java.net.ServerSocket` + Android `Network.bindSocket()` | No third‑party netty/okhttp on the data path — just JDK sockets pinned to the cellular `Network` |
 | Cellular state | `ConnectivityManager.requestNetwork` + `TelephonyManager` | Two independent paths: provider gets a `Network` handle for binding; monitor reads `dataNetworkType` / `networkOperatorName` for the header |
-| Background | **Foreground `Service`** with `dataSync` foreground type | Survives the activity, holds a partial wake lock while running |
+| Background | **Foreground `Service`** with `specialUse` foreground type | Survives the activity, holds a partial wake lock while running; `specialUse` (not `dataSync`) so it can also be relaunched from a `BOOT_COMPLETED` receiver on Android 15+ |
 | Persistence | `SharedPreferences` (`dataproxy_prefs`) | Bind address, port, auth toggle/creds, theme mode |
 | IPC | `ServiceConnection` + `LocalBinder` | Activity binds the service to read its `StateFlow`s directly; no AIDL |
 | Build | **Gradle 8.10** + **Android Gradle Plugin** | Kotlin DSL, R8 minify, signing config conditional on keystore presence |
@@ -140,8 +148,9 @@ cellular‑bound `Network`.
 | `ACCESS_NETWORK_STATE` | normal | `ConnectivityManager` + `isDataEnabled` |
 | `ACCESS_WIFI_STATE` | normal | Enumerating local bind addresses on the Wi‑Fi interface |
 | `CHANGE_NETWORK_STATE` | normal | `requestNetwork` callback registration |
-| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC` | normal | Keep proxy alive in background |
+| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` | normal | Keep proxy alive in background; `specialUse` also allows relaunch on boot |
 | `WAKE_LOCK` | normal | Partial wake lock while listener is up |
+| `RECEIVE_BOOT_COMPLETED` | normal | Relaunch the proxy after a reboot (optional, off by default) |
 | `POST_NOTIFICATIONS` | **runtime, Android 13+** | Foreground service status notification — asked when you tap Start |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | runtime intent | Prevents Doze from suspending the listener — asked when you tap Start |
 | `READ_BASIC_PHONE_STATE` | normal (API 33+) | `getDataNetworkType()` for the header tech label — auto‑granted, no prompt |
@@ -170,9 +179,12 @@ the first time.
    Tap *Allow* next to each item; granted ones show a tick. If mobile data
    is off, a dialog with a shortcut to the right settings panel appears
    instead.
-3. **Optional — enable auth.** Open the *Auth* tile on the home screen to
+3. **Optional — keep it alive.** Tap the *Anti‑Kill* chip in the header to
+   walk the per‑vendor battery / auto‑launch settings and to enable
+   auto‑start on boot, so the proxy survives Doze, swipe‑away, and reboots.
+4. **Optional — enable auth.** Open the *Auth* tile on the home screen to
    require a username/password from clients (RFC 1929).
-4. **Connect a client.** From any device on the same Wi‑Fi:
+5. **Connect a client.** From any device on the same Wi‑Fi:
    ```
    curl --socks5-hostname <phone-ip>:1080 https://your-target.example
    ```

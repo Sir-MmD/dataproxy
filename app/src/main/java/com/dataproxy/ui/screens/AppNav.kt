@@ -1,6 +1,8 @@
 package com.dataproxy.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,8 +43,9 @@ import com.dataproxy.ui.theme.TextSecondary
 import com.dataproxy.ui.theme.ThemeMode
 import com.dataproxy.ui.theme.Warning
 import com.dataproxy.ui.viewmodel.MainViewModel
+import com.dataproxy.util.AntiKillStep
 
-enum class Tab { Home, ListenAddress, Devices, Auth }
+enum class Tab { Home, ListenAddress, Devices, Auth, AntiKill }
 
 @Composable
 fun AppNav(
@@ -63,6 +66,12 @@ fun AppNav(
     onAllowNotif: () -> Unit,
     onAllowBatt: () -> Unit,
     onAllowPhone: () -> Unit,
+    autoStartDone: Boolean,
+    backgroundDone: Boolean,
+    lockRecentsDone: Boolean,
+    onOpenAutoStart: () -> Unit,
+    onOpenBackground: () -> Unit,
+    onOpenLockRecents: () -> Unit,
     showMobileDataDialog: Boolean,
     onDismissMobileDataDialog: () -> Unit,
     onOpenMobileDataSettings: () -> Unit,
@@ -84,6 +93,7 @@ fun AppNav(
                     onOpenListen = { onTabChange(Tab.ListenAddress) },
                     onOpenDevices = { onTabChange(Tab.Devices) },
                     onOpenAuth = { onTabChange(Tab.Auth) },
+                    onOpenAntiKill = { onTabChange(Tab.AntiKill) },
                     themeMode = themeMode,
                     onCycleTheme = onCycleTheme,
                     onHeaderClick = onHeaderClick,
@@ -97,6 +107,10 @@ fun AppNav(
                     onBack = { onTabChange(Tab.Home) },
                 )
                 Tab.Auth -> AuthScreen(
+                    viewModel = viewModel,
+                    onBack = { onTabChange(Tab.Home) },
+                )
+                Tab.AntiKill -> AntiKillScreen(
                     viewModel = viewModel,
                     onBack = { onTabChange(Tab.Home) },
                 )
@@ -114,6 +128,12 @@ fun AppNav(
             onAllowNotif = onAllowNotif,
             onAllowBatt = onAllowBatt,
             onAllowPhone = onAllowPhone,
+            autoStartDone = autoStartDone,
+            backgroundDone = backgroundDone,
+            lockRecentsDone = lockRecentsDone,
+            onOpenAutoStart = onOpenAutoStart,
+            onOpenBackground = onOpenBackground,
+            onOpenLockRecents = onOpenLockRecents,
             onDismiss = onDismissPermsDialog,
         )
     }
@@ -156,6 +176,12 @@ private fun PermissionsDialog(
     onAllowNotif: () -> Unit,
     onAllowBatt: () -> Unit,
     onAllowPhone: () -> Unit,
+    autoStartDone: Boolean,
+    backgroundDone: Boolean,
+    lockRecentsDone: Boolean,
+    onOpenAutoStart: () -> Unit,
+    onOpenBackground: () -> Unit,
+    onOpenLockRecents: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -163,11 +189,12 @@ private fun PermissionsDialog(
         containerColor = SurfaceLow,
         titleContentColor = TextPrimary,
         textContentColor = TextSecondary,
-        title = { Text("Permissions", fontWeight = FontWeight.SemiBold) },
+        title = { Text("Keep DataProxy alive", fontWeight = FontWeight.SemiBold) },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    text = "Tap Allow next to each one. Granted permissions show a check.",
+                    text = "Grant these so Android doesn't kill the proxy in the background. " +
+                        "The first two are required; the rest open your phone's settings.",
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -191,8 +218,43 @@ private fun PermissionsDialog(
                     granted = battGranted,
                     onAllow = onAllowBatt,
                 )
+
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "SURVIVE BACKGROUND LIMITS",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                PermItem(
+                    icon = AntiKillStep.AutoStart.icon,
+                    title = AntiKillStep.AutoStart.title,
+                    reason = AntiKillStep.AutoStart.description,
+                    granted = autoStartDone,
+                    onAllow = onOpenAutoStart,
+                    actionLabel = "Open",
+                )
+                Spacer(Modifier.height(12.dp))
+                PermItem(
+                    icon = AntiKillStep.BackgroundActivity.icon,
+                    title = AntiKillStep.BackgroundActivity.title,
+                    reason = AntiKillStep.BackgroundActivity.description,
+                    granted = backgroundDone,
+                    onAllow = onOpenBackground,
+                    actionLabel = "Open",
+                )
+                Spacer(Modifier.height(12.dp))
+                PermItem(
+                    icon = AntiKillStep.LockInRecents.icon,
+                    title = AntiKillStep.LockInRecents.title,
+                    reason = AntiKillStep.LockInRecents.description,
+                    granted = lockRecentsDone,
+                    onAllow = onOpenLockRecents,
+                    actionLabel = "Open",
+                )
+
                 if (phoneApplicable) {
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(16.dp))
                     PermItem(
                         icon = Icons.Rounded.SignalCellularAlt,
                         title = "Phone state (optional)",
@@ -219,6 +281,7 @@ private fun PermItem(
     reason: String,
     granted: Boolean,
     onAllow: () -> Unit,
+    actionLabel: String = "Allow",
 ) {
     Row(verticalAlignment = Alignment.Top) {
         Box(
@@ -259,7 +322,7 @@ private fun PermItem(
             )
         } else {
             TextButton(onClick = onAllow) {
-                Text("Allow", color = Accent, fontWeight = FontWeight.SemiBold)
+                Text(actionLabel, color = Accent, fontWeight = FontWeight.SemiBold)
             }
         }
     }
