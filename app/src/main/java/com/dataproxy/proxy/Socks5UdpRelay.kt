@@ -3,7 +3,6 @@ package com.dataproxy.proxy
 import android.util.Log
 import com.dataproxy.network.CellularNetworkProvider
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.Closeable
@@ -44,8 +43,8 @@ class Socks5UdpRelay(
     val port: Int get() = clientSocket.localPort
 
     fun start() {
-        clientLoopJob = scope.launch(Dispatchers.IO) { clientLoop() }
-        remoteLoopJob = scope.launch(Dispatchers.IO) { remoteLoop() }
+        clientLoopJob = scope.launch(RelayDispatcher) { clientLoop() }
+        remoteLoopJob = scope.launch(RelayDispatcher) { remoteLoop() }
     }
 
     private fun clientLoop() {
