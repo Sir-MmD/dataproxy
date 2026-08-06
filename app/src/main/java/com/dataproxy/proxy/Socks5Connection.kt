@@ -3,7 +3,6 @@ package com.dataproxy.proxy
 import android.util.Log
 import com.dataproxy.network.CellularNetworkProvider
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -36,7 +35,7 @@ class Socks5Connection(
     private var outbound: Socket? = null
     private var udpRelay: Socks5UdpRelay? = null
 
-    fun handle(): Job = scope.launch(Dispatchers.IO) {
+    fun handle(): Job = scope.launch(RelayDispatcher) {
         try {
             clientSocket.tcpNoDelay = true
             clientSocket.soTimeout = HANDSHAKE_TIMEOUT_MS
@@ -184,7 +183,7 @@ class Socks5Connection(
         val resolved: InetAddress? = when (target) {
             is Target.Ipv4 -> target.addr
             is Target.Ipv6 -> target.addr
-            is Target.Domain -> withContext(Dispatchers.IO) {
+            is Target.Domain -> withContext(RelayDispatcher) {
                 cellular.resolveHost(target.host)
             }
         }
@@ -213,7 +212,7 @@ class Socks5Connection(
         }
 
         return try {
-            withContext(Dispatchers.IO) {
+            withContext(RelayDispatcher) {
                 remote.connect(InetSocketAddress(resolved, port), CONNECT_TIMEOUT_MS)
             }
             reply(output, REP_SUCCEEDED, remote.localSocketAddress as? InetSocketAddress)
@@ -278,7 +277,7 @@ class Socks5Connection(
         // EOF or throws), tear down the UDP relay.
         clientSocket.soTimeout = 0
         runCatching {
-            withContext(Dispatchers.IO) {
+            withContext(RelayDispatcher) {
                 val buf = ByteArray(64)
                 while (true) {
                     val n = input.read(buf)
@@ -291,7 +290,7 @@ class Socks5Connection(
 
     // ----------------------------------------------------------------- relay
 
-    private suspend fun relay(remote: Socket) = withContext(Dispatchers.IO) {
+    private suspend fun relay(remote: Socket) = withContext(RelayDispatcher) {
         val client = clientSocket
         val tracker = entry
 
