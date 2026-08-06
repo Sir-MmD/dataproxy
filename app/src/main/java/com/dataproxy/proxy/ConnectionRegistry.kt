@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -59,9 +60,9 @@ class ConnectionRegistry {
 
         deviceStats.compute(clientHost) { _, prev ->
             val acc = prev ?: DeviceAccumulator(firstSeenMs = now)
-            acc.activeConnections += 1
-            acc.totalConnections += 1
-            acc.lastSeenMs = now
+            acc.activeConnections.incrementAndGet()
+            acc.totalConnections.incrementAndGet()
+            acc.lastSeenMs.set(now)
             acc
         }
         refresh()
@@ -73,8 +74,8 @@ class ConnectionRegistry {
         conn.bytesUp.addAndGet(n.toLong())
         totalUp.addAndGet(n.toLong())
         deviceStats[conn.clientHost]?.let {
-            it.bytesUp += n
-            it.lastSeenMs = System.currentTimeMillis()
+            it.bytesUp.addAndGet(n.toLong())
+            it.lastSeenMs.set(System.currentTimeMillis())
         }
     }
 
@@ -83,16 +84,16 @@ class ConnectionRegistry {
         conn.bytesDown.addAndGet(n.toLong())
         totalDown.addAndGet(n.toLong())
         deviceStats[conn.clientHost]?.let {
-            it.bytesDown += n
-            it.lastSeenMs = System.currentTimeMillis()
+            it.bytesDown.addAndGet(n.toLong())
+            it.lastSeenMs.set(System.currentTimeMillis())
         }
     }
 
     fun close(conn: Connection) {
         connections.remove(conn.id)
         deviceStats[conn.clientHost]?.let { acc ->
-            acc.activeConnections = (acc.activeConnections - 1).coerceAtLeast(0)
-            acc.lastSeenMs = System.currentTimeMillis()
+            acc.activeConnections.updateAndGet { (it - 1).coerceAtLeast(0) }
+            acc.lastSeenMs.set(System.currentTimeMillis())
         }
         refresh()
     }
@@ -117,12 +118,12 @@ class ConnectionRegistry {
             .map { (host, acc) ->
                 DeviceSummary(
                     clientHost = host,
-                    activeConnections = acc.activeConnections,
-                    totalConnections = acc.totalConnections,
-                    bytesUp = acc.bytesUp,
-                    bytesDown = acc.bytesDown,
+                    activeConnections = acc.activeConnections.get(),
+                    totalConnections = acc.totalConnections.get(),
+                    bytesUp = acc.bytesUp.get(),
+                    bytesDown = acc.bytesDown.get(),
                     firstSeenMs = acc.firstSeenMs,
-                    lastSeenMs = acc.lastSeenMs,
+                    lastSeenMs = acc.lastSeenMs.get(),
                 )
             }
             .sortedWith(
@@ -137,14 +138,17 @@ class ConnectionRegistry {
         )
     }
 
-    private class DeviceAccumulator(
-        var activeConnections: Int = 0,
-        var totalConnections: Int = 0,
-        var bytesUp: Long = 0L,
-        var bytesDown: Long = 0L,
-        var firstSeenMs: Long = 0L,
-        var lastSeenMs: Long = 0L,
-    )
+    // Mutated concurrently from every connection coroutine sharing this
+    // client host, so every field that changes after construction needs to
+    // be a real atomic, not a plain var — a `+=` here is a lost-update race
+    // under concurrent traffic from the same device.
+    private class DeviceAccumulator(val firstSeenMs: Long) {
+        val activeConnections = AtomicInteger(0)
+        val totalConnections = AtomicInteger(0)
+        val bytesUp = AtomicLong(0L)
+        val bytesDown = AtomicLong(0L)
+        val lastSeenMs = AtomicLong(firstSeenMs)
+    }
 }
 
 /**
