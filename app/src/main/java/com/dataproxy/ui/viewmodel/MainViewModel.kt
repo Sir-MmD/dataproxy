@@ -18,6 +18,7 @@ import com.dataproxy.proxy.SpeedSampler
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.theme.ThemeMode
 import com.dataproxy.util.AntiKillPreferences
+import com.dataproxy.util.RateUnit
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,6 +80,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         ThemeMode.fromKey(prefs.getString(KEY_THEME_MODE, null))
     )
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    private val _rateUnit = MutableStateFlow(
+        RateUnit.fromKey(prefs.getString(ProxyService.PREF_RATE_UNIT, null))
+    )
+    val rateUnit: StateFlow<RateUnit> = _rateUnit.asStateFlow()
 
     private val _autoStartOnBoot = MutableStateFlow(AntiKillPreferences.autoStartOnBoot(app))
     val autoStartOnBoot: StateFlow<Boolean> = _autoStartOnBoot.asStateFlow()
@@ -168,6 +174,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         _themeMode.value = next
         prefs.edit().putString(KEY_THEME_MODE, next.key).apply()
+    }
+
+    fun cycleRateUnit() {
+        val next = if (_rateUnit.value == RateUnit.BytesPerSecond) RateUnit.Mbps else RateUnit.BytesPerSecond
+        _rateUnit.value = next
+        prefs.edit().putString(ProxyService.PREF_RATE_UNIT, next.key).apply()
     }
 
     fun start() {

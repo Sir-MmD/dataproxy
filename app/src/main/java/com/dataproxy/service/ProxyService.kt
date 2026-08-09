@@ -369,6 +369,10 @@ class ProxyService : Service() {
         // BootReceiver so an auto-start uses the same endpoint as the UI.
         const val PREF_BIND_ADDRESS = "bind_address"
         const val PREF_PORT = "port"
+        // Written by MainViewModel; read here fresh on every notification
+        // rebuild so a toggle made while the proxy is running takes effect
+        // on the next update without a restart.
+        const val PREF_RATE_UNIT = "rate_unit"
 
         fun startIntent(ctx: Context, addr: String, port: Int) =
             Intent(ctx, ProxyService::class.java)
