@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -133,8 +134,8 @@ private fun SpeedTile(
                 color = TextSecondary,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
-                    .padding(bottom = 6.dp)
-                    .clickable(onClick = onUnitClick),
+                    .clickable(onClick = onUnitClick, role = Role.Button)
+                    .padding(bottom = 6.dp),
             )
         }
         Spacer(Modifier.height(8.dp))

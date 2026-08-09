@@ -8,9 +8,9 @@ object ByteFormatter {
 
     fun bytes(n: Long): String = humanise(n, sizeUnits)
 
-    fun rate(bps: Long, unit: RateUnit): Pair<String, String> = when (unit) {
-        RateUnit.BytesPerSecond -> humanisePair(bps.toDouble(), 1024.0, bytesPerSecUnits)
-        RateUnit.Mbps -> humanisePair(bps.toDouble() * 8.0, 1000.0, mbpsUnits)
+    fun rate(bytesPerSec: Long, unit: RateUnit): Pair<String, String> = when (unit) {
+        RateUnit.BytesPerSecond -> humanisePair(bytesPerSec.toDouble(), 1024.0, bytesPerSecUnits)
+        RateUnit.Mbps -> humanisePair(bytesPerSec.toDouble() * 8.0, 1000.0, mbpsUnits)
     }
 
     private fun humanise(n: Long, units: Array<String>): String {

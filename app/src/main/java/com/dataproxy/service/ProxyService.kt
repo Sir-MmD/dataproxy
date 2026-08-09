@@ -319,8 +319,8 @@ class ProxyService : Service() {
         }
     }
 
-    private fun rateText(bps: Long, unit: RateUnit): String {
-        val (number, label) = ByteFormatter.rate(bps, unit)
+    private fun rateText(bytesPerSec: Long, unit: RateUnit): String {
+        val (number, label) = ByteFormatter.rate(bytesPerSec, unit)
         return "$number$label"
     }
 
