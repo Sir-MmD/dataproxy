@@ -19,6 +19,8 @@ import com.dataproxy.proxy.AuthConfig
 import com.dataproxy.proxy.ConnectionRegistry
 import com.dataproxy.proxy.Socks5Server
 import com.dataproxy.proxy.SpeedSampler
+import com.dataproxy.util.ByteFormatter
+import com.dataproxy.util.RateUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -279,8 +281,11 @@ class ProxyService : Service() {
         )
         val isPaused = _state.value is State.Paused
         val title = if (isPaused) "DataProxy · paused" else "DataProxy · $addr:$port"
+        val rateUnit = RateUnit.fromKey(
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_RATE_UNIT, null)
+        )
         val sub = if (isPaused) "Waiting for mobile data"
-        else "${totals.active} conn  ·  ↑${humanRate(rates.upBps)}  ↓${humanRate(rates.downBps)}"
+        else "${totals.active} conn  ·  ↑${rateText(rates.upBps, rateUnit)}  ↓${rateText(rates.downBps, rateUnit)}"
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_proxy)
             .setContentTitle(title)
@@ -314,12 +319,9 @@ class ProxyService : Service() {
         }
     }
 
-    private fun humanRate(bps: Long): String {
-        val units = arrayOf("B/s", "KB/s", "MB/s", "GB/s")
-        var v = bps.toDouble()
-        var i = 0
-        while (v >= 1024 && i < units.lastIndex) { v /= 1024; i++ }
-        return if (i == 0) "${bps}${units[i]}" else "%.1f%s".format(v, units[i])
+    private fun rateText(bps: Long, unit: RateUnit): String {
+        val (number, label) = ByteFormatter.rate(bps, unit)
+        return "$number$label"
     }
 
     /**
