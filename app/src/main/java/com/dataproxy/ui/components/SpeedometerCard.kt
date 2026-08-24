@@ -3,6 +3,7 @@ package com.dataproxy.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,12 +39,16 @@ import com.dataproxy.ui.theme.OutlineSoft
 import com.dataproxy.ui.theme.TextMuted
 import com.dataproxy.ui.theme.TextPrimary
 import com.dataproxy.ui.theme.TextSecondary
+import com.dataproxy.util.ByteFormatter
+import com.dataproxy.util.RateUnit
 import kotlin.math.ln
 
 @Composable
 fun SpeedometerCard(
     upBps: Long,
     downBps: Long,
+    rateUnit: RateUnit,
+    onCycleRateUnit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SectionCard(
@@ -59,6 +65,8 @@ fun SpeedometerCard(
                 icon = Icons.Rounded.ArrowDownward,
                 bps = downBps,
                 color = Info,
+                rateUnit = rateUnit,
+                onUnitClick = onCycleRateUnit,
                 modifier = Modifier.weight(1f),
             )
             SpeedTile(
@@ -66,6 +74,8 @@ fun SpeedometerCard(
                 icon = Icons.Rounded.ArrowUpward,
                 bps = upBps,
                 color = Accent,
+                rateUnit = rateUnit,
+                onUnitClick = onCycleRateUnit,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -78,9 +88,11 @@ private fun SpeedTile(
     icon: ImageVector,
     bps: Long,
     color: Color,
+    rateUnit: RateUnit,
+    onUnitClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val displayValue = remember(bps) { formatRate(bps) }
+    val displayValue = remember(bps, rateUnit) { ByteFormatter.rate(bps, rateUnit) }
     val animated by animateFloatAsState(
         targetValue = normaliseBps(bps),
         animationSpec = tween(600),
@@ -121,7 +133,9 @@ private fun SpeedTile(
                 text = displayValue.second,
                 color = TextSecondary,
                 style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(bottom = 6.dp),
+                modifier = Modifier
+                    .clickable(onClick = onUnitClick, role = Role.Button)
+                    .padding(bottom = 6.dp),
             )
         }
         Spacer(Modifier.height(8.dp))
@@ -155,19 +169,4 @@ private fun normaliseBps(bps: Long): Float {
     val value = bps.toDouble().coerceAtMost(ceiling)
     val score = ln(value + 1) / ln(ceiling + 1)
     return score.toFloat().coerceIn(0f, 1f)
-}
-
-private fun formatRate(bps: Long): Pair<String, String> {
-    val units = arrayOf("B/s", "KB/s", "MB/s", "GB/s")
-    if (bps <= 0) return "0" to units[0]
-    var v = bps.toDouble()
-    var i = 0
-    while (v >= 1024 && i < units.lastIndex) { v /= 1024; i++ }
-    val number = when {
-        i == 0 -> bps.toString()
-        v >= 100 -> "%.0f".format(v)
-        v >= 10 -> "%.1f".format(v)
-        else -> "%.2f".format(v)
-    }
-    return number to units[i]
 }

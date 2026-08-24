@@ -76,6 +76,7 @@ fun HomeScreen(
     val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
     val totals by viewModel.totals.collectAsStateWithLifecycle()
     val rates by viewModel.rates.collectAsStateWithLifecycle()
+    val rateUnit by viewModel.rateUnit.collectAsStateWithLifecycle()
     val cellular by viewModel.cellular.collectAsStateWithLifecycle()
     val cellularTech by viewModel.cellularTech.collectAsStateWithLifecycle()
     val bindAddress by viewModel.bindAddress.collectAsStateWithLifecycle()
@@ -125,7 +126,12 @@ fun HomeScreen(
             )
         }
         Spacer(Modifier.height(14.dp))
-        SpeedometerCard(upBps = rates.upBps, downBps = rates.downBps)
+        SpeedometerCard(
+            upBps = rates.upBps,
+            downBps = rates.downBps,
+            rateUnit = rateUnit,
+            onCycleRateUnit = { viewModel.cycleRateUnit() },
+        )
         Spacer(Modifier.height(10.dp))
         TrafficStatsCard(
             bytesUp = totals.bytesUp,
