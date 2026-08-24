@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Per-connection book-keeping. Tracks live SOCKS5 sessions, accumulates totals,
- * and surfaces a [grouped] view aggregated by client IP — that's what the UI
+ * and surfaces a [grouped] view aggregated by client IP, that's what the UI
  * means by "connected devices".
  */
 class ConnectionRegistry {
@@ -41,6 +41,19 @@ class ConnectionRegistry {
     private val deviceStats = ConcurrentHashMap<String, DeviceAccumulator>()
     private val nextId = AtomicLong(1L)
 
+    /**
+     * One registry instance is shared across every Socks5Server the service
+     * builds, and a stopped connection's relay threads keep unwinding for a
+     * while after Stop returns. Membership in [connections] is what makes a
+     * report belong to the current cycle: [reset] clears the map, so anything
+     * from a previous cycle is already absent by the time it reports in.
+     *
+     * Without that check a straggler decrements the *new* cycle's accumulator,
+     * and since the counter is clamped at zero it pins there and never
+     * re-syncs, the Devices tile then reads "0 online" while traffic flows.
+     */
+    private fun isCurrent(conn: Connection) = connections.containsKey(conn.id)
+
     private val totalUp = AtomicLong(0L)
     private val totalDown = AtomicLong(0L)
 
@@ -70,7 +83,7 @@ class ConnectionRegistry {
     }
 
     fun recordUp(conn: Connection, n: Int) {
-        if (n <= 0) return
+        if (n <= 0 || !isCurrent(conn)) return
         conn.bytesUp.addAndGet(n.toLong())
         totalUp.addAndGet(n.toLong())
         deviceStats[conn.clientHost]?.let {
@@ -80,7 +93,7 @@ class ConnectionRegistry {
     }
 
     fun recordDown(conn: Connection, n: Int) {
-        if (n <= 0) return
+        if (n <= 0 || !isCurrent(conn)) return
         conn.bytesDown.addAndGet(n.toLong())
         totalDown.addAndGet(n.toLong())
         deviceStats[conn.clientHost]?.let {
@@ -90,7 +103,10 @@ class ConnectionRegistry {
     }
 
     fun close(conn: Connection) {
-        connections.remove(conn.id)
+        // Same predicate as isCurrent, fused with the removal so it is atomic.
+        // nextId deliberately survives reset(), so ids never collide across
+        // cycles and this cannot retire the wrong accumulator.
+        if (connections.remove(conn.id) == null) return
         deviceStats[conn.clientHost]?.let { acc ->
             acc.activeConnections.updateAndGet { (it - 1).coerceAtLeast(0) }
             acc.lastSeenMs.set(System.currentTimeMillis())
@@ -107,7 +123,7 @@ class ConnectionRegistry {
         refresh()
     }
 
-    /** Snapshot of cumulative byte counters — used by the speed sampler. */
+    /** Snapshot of cumulative byte counters, used by the speed sampler. */
     fun snapshotBytes(): Pair<Long, Long> = totalUp.get() to totalDown.get()
 
     /** Called periodically (1Hz from the service) to refresh emitted state. */
@@ -140,7 +156,7 @@ class ConnectionRegistry {
 
     // Mutated concurrently from every connection coroutine sharing this
     // client host, so every field that changes after construction needs to
-    // be a real atomic, not a plain var — a `+=` here is a lost-update race
+    // be a real atomic, not a plain var, a `+=` here is a lost-update race
     // under concurrent traffic from the same device.
     private class DeviceAccumulator(val firstSeenMs: Long) {
         val activeConnections = AtomicInteger(0)

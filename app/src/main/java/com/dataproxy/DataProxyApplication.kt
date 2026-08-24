@@ -13,7 +13,7 @@ class DataProxyApplication : Application() {
         // resolves go through Network#getAllByName on the cellular Network,
         // but any JVM fallback (e.g. java.net.InetAddress.getByName from a
         // library, or a future code path) would otherwise cache a poisoned
-        // answer for the whole process lifetime — only force-stopping the
+        // answer for the whole process lifetime, only force-stopping the
         // app would clear it. Cellular carriers in censorship regions
         // occasionally serve hijacked DNS, so a stale poisoned entry would
         // make TLS look broken to every client.

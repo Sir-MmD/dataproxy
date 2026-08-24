@@ -9,7 +9,7 @@ import com.dataproxy.service.ProxyService
  *
  * - [autoStartOnBoot] gates whether [com.dataproxy.service.BootReceiver]
  *   relaunches the proxy after a reboot.
- * - the per-[AntiKillStep] flags only cover the manual OEM steps — the user
+ * - the per-[AntiKillStep] flags only cover the manual OEM steps, the user
  *   ticks "I've done this" because the system can't report those settings.
  *   Auto-detectable steps are read live and never persisted here.
  */

@@ -11,7 +11,7 @@ import com.dataproxy.util.AntiKillPreferences
  * user has enabled "Start after reboot" on the Anti-Kill screen.
  *
  * The proxy's foreground service is declared `specialUse`, which Android 15+
- * still permits starting from a BOOT_COMPLETED receiver — `dataSync` is not.
+ * still permits starting from a BOOT_COMPLETED receiver, `dataSync` is not.
  * That's the whole reason [ProxyService] uses the specialUse type.
  *
  * Cellular may be cold at boot; [ProxyService.startProxy] already waits up to

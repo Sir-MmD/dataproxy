@@ -7,7 +7,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 // ---------------------------------------------------------------- Dark palette
-// True OLED black — saves real power on AMOLED panels.
+// True OLED black, saves real power on AMOLED panels.
 private val DarkInk = Color(0xFF000000)
 private val DarkSurfaceLow = Color(0xFF0A0A0A)
 private val DarkSurfaceMid = Color(0xFF121214)
@@ -30,7 +30,7 @@ private val LightTextSecondary = Color(0xFF4A4B55)
 private val LightTextMuted = Color(0xFF7C7E88)
 
 // ---------------------------------------------------- Theme-independent accents
-// Mint-green accent — signals "live" without feeling neon.
+// Mint-green accent, signals "live" without feeling neon.
 val Accent = Color(0xFF3DDC97)
 val AccentDim = Color(0xFF1B6E51)
 val AccentGlow = Color(0x333DDC97)

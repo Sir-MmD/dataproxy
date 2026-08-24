@@ -88,13 +88,28 @@ fun AuthScreen(
                 onToggle = viewModel::setAuthEnabled,
             )
 
+            // Auth is enforced fail-closed: with a blank username or password
+            // the server refuses every method rather than matching "" == "".
+            // That is the safe behaviour, but it is also invisible from the
+            // client side, so say so here, otherwise a half-filled form looks
+            // identical to a working one while nothing can connect.
+            // isEmpty, not isBlank, it must match the server's own test in
+            // Socks5Connection.negotiateMethod exactly. A username of " " is
+            // accepted there, and a banner claiming connections are refused
+            // when they are not is worse than no banner.
+            val incomplete = enabled && (username.isEmpty() || password.isEmpty())
             HintBanner(
-                message = if (enabled) {
-                    "Clients must send these credentials during the SOCKS5 handshake " +
-                        "(RFC 1929 username/password). Changes apply to new connections."
-                } else {
-                    "No authentication required. Any client that can reach the listen " +
-                        "address can use the proxy."
+                alert = incomplete,
+                message = when {
+                    incomplete ->
+                        "Credentials incomplete. Every connection will be refused. " +
+                            "Fill in both fields, or turn authentication off."
+                    enabled ->
+                        "Clients must send these credentials during the SOCKS5 handshake " +
+                            "(RFC 1929 username/password). Changes apply to new connections."
+                    else ->
+                        "No authentication required. Any client that can reach the listen " +
+                            "address can use the proxy."
                 },
             )
 

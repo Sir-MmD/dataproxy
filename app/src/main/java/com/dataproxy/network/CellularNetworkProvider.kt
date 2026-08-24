@@ -36,8 +36,8 @@ class CellularNetworkProvider(context: Context) {
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             // We do NOT call cm.bindProcessToNetwork(network) here.
-            // That tags every socket the process creates — including the
-            // SOCKS5 listener — with the cellular netId. The kernel then
+            // That tags every socket the process creates, including the
+            // SOCKS5 listener, with the cellular netId. The kernel then
             // routes the listener's SYN-ACK replies via the cellular
             // route table, so external clients on Wi-Fi never finish the
             // TCP handshake (SYN_RECV → retransmits → time out).
@@ -130,16 +130,58 @@ class CellularNetworkProvider(context: Context) {
         }
     }
 
-    /** Resolve a hostname using the cellular network's DNS (not WiFi DNS). */
-    fun resolveHost(host: String): java.net.InetAddress? {
-        val net = cellular ?: return null
-        return runCatching { net.getAllByName(host).firstOrNull() }.getOrNull()
+    private val dns = CellularDnsResolver(
+        networkProvider = { cellular },
+        linkProperties = { net -> runCatching { cm.getLinkProperties(net) }.getOrNull() },
+    )
+
+    /**
+     * Resolve a hostname over the cellular link's own resolvers.
+     *
+     * Returns every address the resolver gave, IPv4 first, callers are
+     * expected to try them in order, since a censoring carrier routinely
+     * returns one blackholed address alongside working ones.
+     */
+    fun resolveAll(host: String): List<java.net.InetAddress> = dns.resolve(host)
+
+    /** Single-address convenience for callers that cannot iterate. */
+    fun resolveHost(host: String): java.net.InetAddress? = resolveAll(host).firstOrNull()
+
+    /**
+     * Whether the cellular link can carry IPv6 at all.
+     *
+     * The APN here is IPv4-only, so an AAAA-only host is resolvable but
+     * unreachable. Distinguishing the two lets the connect path report
+     * REP_NETWORK_UNREACHABLE, a definitive "this network cannot get there",
+     * instead of a resolve failure, which invites the client to look the name
+     * up again on a network we do not control.
+     */
+    fun hasIpv6(): Boolean {
+        val net = cellular ?: return false
+        val lp = runCatching { cm.getLinkProperties(net) }.getOrNull() ?: return false
+        return lp.linkAddresses.any {
+            it.address is java.net.Inet6Address &&
+                !it.address.isLinkLocalAddress &&
+                !it.address.isLoopbackAddress
+        }
     }
 
-    /** Create a new outbound socket already bound to the cellular network. */
+    /**
+     * Create a new outbound socket already bound to the cellular network.
+     *
+     * Network.bindSocket() forces the underlying impl to be created before it
+     * can fail, so the fd exists by the time it throws, close it rather than
+     * waiting for a finalizer that heap-pressure-driven GC may never run in
+     * time to beat RLIMIT_NOFILE.
+     */
     fun createBoundSocket(): Socket {
         val socket = Socket()
-        bindSocket(socket)
+        try {
+            bindSocket(socket)
+        } catch (t: Throwable) {
+            runCatching { socket.close() }
+            throw t
+        }
         return socket
     }
 
@@ -150,10 +192,22 @@ class CellularNetworkProvider(context: Context) {
         net.bindSocket(socket)
     }
 
-    /** Create a new UDP socket already bound to the cellular network. */
+    /**
+     * Create a new UDP socket already bound to the cellular network.
+     *
+     * The no-arg DatagramSocket constructor binds an ephemeral port, so the fd
+     * is live before bindDatagram can reject it, most often with
+     * IllegalStateException while the service is Paused, which is exactly when
+     * a UDP client is retrying ASSOCIATE once a second.
+     */
     fun createBoundDatagramSocket(): DatagramSocket {
         val socket = DatagramSocket()
-        bindDatagram(socket)
+        try {
+            bindDatagram(socket)
+        } catch (t: Throwable) {
+            runCatching { socket.close() }
+            throw t
+        }
         return socket
     }
 

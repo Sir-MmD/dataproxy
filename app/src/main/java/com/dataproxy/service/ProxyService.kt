@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
  * Foreground because:
  * 1. We need to keep TCP accept loops + worker threads alive when the UI
  *    goes away.
- * 2. We hold a cellular [android.net.Network] reference — that gets revoked
+ * 2. We hold a cellular [android.net.Network] reference, that gets revoked
  *    if the process drops out of the foreground importance bucket.
  *
  * UI binds with [LocalBinder] for state and start/stop control; everything
@@ -46,6 +46,22 @@ import kotlinx.coroutines.launch
 class ProxyService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Incremented by every [fullCleanup], i.e. on every start AND every stop.
+     * Bumping only on start would leave a stop-with-no-restart exposed: a
+     * stale onFatal would still match the current cycle and flip the UI from
+     * Stopped to Error after the user deliberately stopped.
+     *
+     * A Socks5Server's accept loop can be
+     * descheduled mid-teardown and resume after a stop+restart has already
+     * completed; its onFatal would then tear down the server that replaced it,
+     * leaving the UI in Error with a healthy proxy killed underneath. The
+     * server's own latch narrows that to a single statement, this closes it,
+     * because the check is on live service state rather than on the dead
+     * server's fields.
+     */
+    private val cycleId = java.util.concurrent.atomic.AtomicLong(0L)
 
     private val cellular by lazy { CellularNetworkProvider(applicationContext) }
     private val registry = ConnectionRegistry()
@@ -118,6 +134,7 @@ class ProxyService : Service() {
         // Clear-state + kill: wipe everything from any previous cycle before
         // we touch cellular again. Idempotent on a clean slate.
         fullCleanup()
+        val myCycle = cycleId.get()
 
         _state.value = State.Starting(bindAddress, port)
         startForegroundNow(bindAddress, port)
@@ -141,9 +158,21 @@ class ProxyService : Service() {
                 cellular = cellular,
                 registry = registry,
                 onFatal = { e ->
+                    if (cycleId.get() != myCycle) return@Socks5Server
+                    // The listener can die after a successful bind (the accept
+                    // loop giving up), so only report BindFailed when the bind
+                    // is actually what failed, otherwise the UI blames the
+                    // listen address for something unrelated.
                     _state.value = State.Error(
-                        message = e.message ?: "Bind failed",
-                        kind = State.ErrorKind.BindFailed,
+                        message = e.message ?: "Listener failed",
+                        // Keyed on Starting, not Running: a bind failure is only
+                        // observable while starting. Testing for Running would
+                        // send the Paused case (cellular dropped, listener
+                        // still bound, accept loop then dies) down the
+                        // BindFailed branch and blame an address that bound
+                        // successfully long ago.
+                        kind = if (_state.value is State.Starting) State.ErrorKind.BindFailed
+                        else State.ErrorKind.Generic,
                     )
                     fullCleanup()
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -152,6 +181,23 @@ class ProxyService : Service() {
             )
             server = srv
             srv.start()
+            // Everything from the staleness check above to here is
+            // non-suspending, so cancelling startJob cannot stop it. A Stop
+            // landing in that window ran fullCleanup() while srv.running was
+            // still false, so server?.stop() early-returned and then nulled
+            // the field, leaving a bound, accepting listener on the port with
+            // nothing holding a reference to it. Only a force-stop cleared it,
+            // and tapping Stop during the 15s cellular wait is the ordinary
+            // way to hit it. Re-check the cycle now that the outcome is known.
+            if (cycleId.get() != myCycle) {
+                // Deliberately does NOT null `server`: this coroutine is the
+                // stale one, so a write here could land after a successor has
+                // already stored its own instance and would orphan it,
+                // exactly the bug being fixed. The next fullCleanup() stops
+                // this (a no-op once stopped) and clears the field safely.
+                srv.stop()
+                return@launch
+            }
             if (srv.running) {
                 _state.value = State.Running(bindAddress, port)
                 acquireWakeLock()
@@ -174,6 +220,7 @@ class ProxyService : Service() {
      * on both start (to wipe leftover state) and stop. Idempotent.
      */
     private fun fullCleanup() {
+        cycleId.incrementAndGet()
         startJob?.cancel(); startJob = null
         publishJob?.cancel(); publishJob = null
         cellularWatchJob?.cancel(); cellularWatchJob = null
@@ -362,7 +409,7 @@ class ProxyService : Service() {
         private const val CHANNEL_ID = "dataproxy.status"
         private const val NOTIF_ID = 1001
 
-        // Mirrored by [com.dataproxy.ui.viewmodel.MainViewModel] — must match.
+        // Mirrored by [com.dataproxy.ui.viewmodel.MainViewModel], must match.
         const val PREFS_NAME = "dataproxy_prefs"
         const val PREF_AUTH_ENABLED = "auth_enabled"
         const val PREF_AUTH_USERNAME = "auth_username"

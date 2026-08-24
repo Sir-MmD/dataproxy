@@ -9,7 +9,7 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * The survival settings that keep Android — and aggressive OEM skins — from
+ * The survival settings that keep Android, and aggressive OEM skins, from
  * killing the proxy when the screen is off or the app is swiped away.
  *
  * [autoDetectable] steps ([Notifications], [BatteryOptimization]) report their
@@ -69,7 +69,7 @@ enum class AntiKillStep(
                 OemHelper.Oem.Oppo, OemHelper.Oem.Vivo, OemHelper.Oem.OnePlus ->
                     "Find DataProxy in the auto-start list and enable it. Names vary: 'Startup manager', 'Auto-launch', etc."
                 else ->
-                    "If your phone reboots, DataProxy should come back up on its own — otherwise the proxy silently stays off until you reopen the app."
+                    "If your phone reboots, DataProxy should come back up on its own. Otherwise the proxy silently stays off until you reopen the app."
             }
             BackgroundActivity -> when (OemHelper.current) {
                 OemHelper.Oem.Samsung ->

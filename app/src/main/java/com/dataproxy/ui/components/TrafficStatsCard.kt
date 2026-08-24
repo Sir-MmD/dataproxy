@@ -22,6 +22,7 @@ import com.dataproxy.ui.theme.Accent
 import com.dataproxy.ui.theme.Info
 import com.dataproxy.ui.theme.TextMuted
 import com.dataproxy.ui.theme.TextPrimary
+import java.util.Locale
 
 @Composable
 fun TrafficStatsCard(
@@ -122,9 +123,9 @@ private fun humanise(bytes: Long): Pair<String, String> {
     while (v >= 1024 && i < units.lastIndex) { v /= 1024; i++ }
     val n = when {
         i == 0 -> bytes.toString()
-        v >= 100 -> "%.0f".format(v)
-        v >= 10 -> "%.1f".format(v)
-        else -> "%.2f".format(v)
+        v >= 100 -> String.format(Locale.ROOT, "%.0f", v)
+        v >= 10 -> String.format(Locale.ROOT, "%.1f", v)
+        else -> String.format(Locale.ROOT, "%.2f", v)
     }
     return n to units[i]
 }

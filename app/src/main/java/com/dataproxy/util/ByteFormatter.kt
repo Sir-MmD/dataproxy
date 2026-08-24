@@ -1,5 +1,7 @@
 package com.dataproxy.util
 
+import java.util.Locale
+
 object ByteFormatter {
 
     private val sizeUnits = arrayOf("B", "KB", "MB", "GB", "TB")
@@ -13,16 +15,22 @@ object ByteFormatter {
         RateUnit.Mbps -> humanisePair(bytesPerSec.toDouble() * 8.0, 1000.0, mbpsUnits)
     }
 
+    // Every format() below pins Locale.ROOT on purpose. Kotlin's String.format
+    // uses Locale.getDefault(FORMAT), so on a fa-IR device "%.1f" renders
+    // Persian digits ("۲۴٫۷") while the i == 0 branches use plain interpolation and
+    // stay ASCII. That mixes two digit systems inside one screen, and
+    // FontFamily.Monospace has no U+06F0-06F9 glyphs, so the speedometer
+    // number falls back to a proportional face and jitters as it updates.
     private fun humanise(n: Long, units: Array<String>): String {
-        if (n < 0) return "—"
+        if (n < 0) return "-"
         var v = n.toDouble()
         var i = 0
         while (v >= 1024.0 && i < units.lastIndex) { v /= 1024.0; i++ }
         return when {
             i == 0 -> "$n ${units[i]}"
-            v >= 100 -> "%.0f %s".format(v, units[i])
-            v >= 10 -> "%.1f %s".format(v, units[i])
-            else -> "%.2f %s".format(v, units[i])
+            v >= 100 -> String.format(Locale.ROOT, "%.0f %s", v, units[i])
+            v >= 10 -> String.format(Locale.ROOT, "%.1f %s", v, units[i])
+            else -> String.format(Locale.ROOT, "%.2f %s", v, units[i])
         }
     }
 
@@ -33,9 +41,9 @@ object ByteFormatter {
         while (v >= base && i < units.lastIndex) { v /= base; i++ }
         val number = when {
             i == 0 -> v.toLong().toString()
-            v >= 100 -> "%.0f".format(v)
-            v >= 10 -> "%.1f".format(v)
-            else -> "%.2f".format(v)
+            v >= 100 -> String.format(Locale.ROOT, "%.0f", v)
+            v >= 10 -> String.format(Locale.ROOT, "%.1f", v)
+            else -> String.format(Locale.ROOT, "%.2f", v)
         }
         return number to units[i]
     }
@@ -45,7 +53,7 @@ object ByteFormatter {
         return when {
             secs < 60 -> "${secs}s"
             secs < 3600 -> "${secs / 60}m ${secs % 60}s"
-            else -> "%dh %dm".format(secs / 3600, (secs % 3600) / 60)
+            else -> String.format(Locale.ROOT, "%dh %dm", secs / 3600, (secs % 3600) / 60)
         }
     }
 }

@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
     // Each launcher is fired independently from a per-item "Allow" button in
-    // the perms dialog. No more auto-chaining — the user explicitly grants
+    // the perms dialog. No more auto-chaining, the user explicitly grants
     // (or skips) one at a time. The result callbacks just no-op; the Compose
     // state poller in setContent picks up the new permission state.
     private val notifPermission = registerForActivityResult(
@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf(BatteryOptimizationHelper.isIgnoring(this))
                 }
                 var phoneGranted by remember { mutableStateOf(!needsPhonePermission()) }
-                // OEM survival steps — not system-detectable, so we surface the
+                // OEM survival steps, not system-detectable, so we surface the
                 // user's persisted "I've done this" flag (also editable on the
                 // Anti-Kill screen). Shown in the perms dialog alongside the
                 // auto-detectable ones.
@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Safety net for the case where data toggles off between the
-                // power-tap check and cellular handshake — the service emits
+                // power-tap check and cellular handshake, the service emits
                 // MobileDataUnavailable after the 15 s wait and we surface it
                 // the same way as the pre-start check.
                 val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity() {
                         // Re-prompt opportunity: only on pre-33 devices where
                         // the optional READ_PHONE_STATE may be missing. On
                         // 33+ the normal perm is always granted so nothing to
-                        // do — clicks are silent.
+                        // do, clicks are silent.
                         if (phoneApplicable && !phoneGranted) {
                             permsDialogStartsProxy = false
                             showPermsDialog = true
@@ -198,7 +198,7 @@ class MainActivity : ComponentActivity() {
     /**
      * Power-button tap. Stops if running; otherwise gates start on mobile-data
      * availability first, then on perms. Mobile-data check happens *only* on
-     * start (not as a passive banner) — that's where the user asked for it.
+     * start (not as a passive banner), that's where the user asked for it.
      */
     private fun onPowerToggle(showPerms: () -> Unit, showMobileData: () -> Unit) {
         val running = when (viewModel.serviceState.value) {
@@ -259,7 +259,7 @@ class MainActivity : ComponentActivity() {
      * Only true on pre-33 devices: API 33+ uses READ_BASIC_PHONE_STATE (a
      * normal install-time perm that's auto-granted), so we never prompt
      * modern users. Below that, getDataNetworkType() needs the runtime
-     * READ_PHONE_STATE — optional for the proxy itself, used by the header
+     * READ_PHONE_STATE, optional for the proxy itself, used by the header
      * to show the real radio tech (2G/3G/4G/5G + operator).
      */
     private fun needsPhonePermission(): Boolean {

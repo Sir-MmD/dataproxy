@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,11 +25,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -117,7 +120,28 @@ private fun SpeedTile(
             )
         }
         Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
+        // The whole number+unit row cycles the rate unit, not just the unit
+        // glyph: a labelMedium "MB/s" is roughly 30x20dp, well under the 48dp
+        // touch-target guideline, and Home's layout has no vertical room to
+        // pad it up to size. Taking the row instead buys the 28sp number's
+        // height for free and makes the obvious thing tappable, with no
+        // change to layout or spacing.
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            // Clip before clickable so the ripple follows the rounded shape
+            // instead of painting a hard rectangle over the digits. Clipping
+            // does not affect measurement, so Home's height is unchanged.
+            modifier = Modifier
+                // Merge so TalkBack reads the rate itself as the button's
+                // label; onClickLabel names the action, not the node.
+                .semantics(mergeDescendants = true) {}
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(
+                    onClick = onUnitClick,
+                    role = Role.Button,
+                    onClickLabel = "Change rate unit",
+                ),
+        ) {
             Text(
                 text = displayValue.first,
                 color = TextPrimary,
@@ -133,9 +157,7 @@ private fun SpeedTile(
                 text = displayValue.second,
                 color = TextSecondary,
                 style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier
-                    .clickable(onClick = onUnitClick, role = Role.Button)
-                    .padding(bottom = 6.dp),
+                modifier = Modifier.padding(bottom = 6.dp),
             )
         }
         Spacer(Modifier.height(8.dp))

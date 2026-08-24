@@ -52,6 +52,7 @@ import com.dataproxy.network.NetworkInterfaceLister
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.components.Pill
 import com.dataproxy.ui.theme.Accent
+import com.dataproxy.ui.theme.Danger
 import com.dataproxy.ui.theme.OutlineSoft
 import com.dataproxy.ui.theme.OutlineStrong
 import com.dataproxy.ui.theme.SurfaceLow
@@ -168,18 +169,28 @@ internal fun TopBar(
 }
 
 @Composable
-internal fun HintBanner(message: String) {
+internal fun HintBanner(message: String, alert: Boolean = false) {
+    // Danger is a theme-independent constant: as a 1dp hairline on the light
+    // theme's white surface it measures 2.77:1, under the 3:1 floor for
+    // non-text, so a border alone is close to invisible in daylight. Washing
+    // the surface with 10% Danger reads in both themes and still leaves the
+    // text far above contrast minimums.
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(SurfaceLow)
-            .border(1.dp, OutlineSoft, RoundedCornerShape(12.dp))
+            .then(if (alert) Modifier.background(Danger.copy(alpha = 0.10f)) else Modifier)
+            .border(
+                if (alert) 2.dp else 1.dp,
+                if (alert) Danger else OutlineSoft,
+                RoundedCornerShape(12.dp),
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Text(
             text = message,
-            color = TextSecondary,
+            color = if (alert) TextPrimary else TextSecondary,
             style = MaterialTheme.typography.labelMedium,
         )
     }

@@ -101,7 +101,7 @@ fun AntiKillScreen(
     var battGranted by remember {
         mutableStateOf(OemHelper.isIgnoringBatteryOptimizations(context))
     }
-    // Manual OEM steps the user marked done — these can't be read back, so we
+    // Manual OEM steps the user marked done, these can't be read back, so we
     // persist the "I've done this" flags.
     val manualSteps = remember {
         mutableStateMapOf<AntiKillStep, Boolean>().apply {
@@ -246,14 +246,14 @@ private fun WhatIsThisBanner(visible: Boolean, onClose: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             Text(
                 text = "The proxy runs entirely on your phone. To keep serving clients it has " +
-                    "to stay awake in the background and hold the cellular connection — even " +
+                    "to stay awake in the background and hold the cellular connection, even " +
                     "with the screen off.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Android — and especially Samsung, Xiaomi, Huawei, and OnePlus — kill " +
+                text = "Android, especially Samsung, Xiaomi, Huawei, and OnePlus, kills " +
                     "background apps to save battery. Each step below tells your phone " +
                     "\"don't kill DataProxy\" through a different channel: notifications, " +
                     "battery Doze, auto-launch, background activity, and the Recents lock.",
@@ -262,7 +262,7 @@ private fun WhatIsThisBanner(visible: Boolean, onClose: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "These are one-time settings that only affect DataProxy — every other " +
+                text = "These are one-time settings that only affect DataProxy. Every other " +
                     "app keeps its normal battery management.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
@@ -486,7 +486,7 @@ private fun StepCard(
                         )
                     }
                 } else {
-                    // OEM step: open settings, then a manual "I've done this" switch —
+                    // OEM step: open settings, then a manual "I've done this" switch.
                     // button on its own row so the label never wraps under the Switch.
                     OutlinedButton(
                         onClick = onGrant,

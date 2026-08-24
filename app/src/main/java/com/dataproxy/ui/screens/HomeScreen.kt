@@ -250,7 +250,7 @@ private fun Header(
             CellularTechMonitor.TechState.Unknown -> when (cellular) {
                 is CellularNetworkProvider.State.Available -> "MOBILE"
                 CellularNetworkProvider.State.Requesting -> "WAIT"
-                else -> "—"
+                else -> "-"
             }
         }
         Column(horizontalAlignment = Alignment.End) {
@@ -407,7 +407,7 @@ private fun Footer() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "v1.2",
+                text = "v1.3",
                 color = TextMuted,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = FontFamily.Monospace,

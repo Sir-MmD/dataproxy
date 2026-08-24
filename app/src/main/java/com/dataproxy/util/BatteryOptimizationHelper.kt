@@ -13,7 +13,7 @@ object BatteryOptimizationHelper {
         return pm.isIgnoringBatteryOptimizations(context.packageName)
     }
 
-    /** Direct allow-list dialog. Some OEMs strip this — fall back to settings. */
+    /** Direct allow-list dialog. Some OEMs strip this, fall back to settings. */
     fun requestIntent(context: Context): Intent =
         Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
             data = Uri.parse("package:${context.packageName}")

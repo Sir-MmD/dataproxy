@@ -12,7 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 /**
  * Opens the per-manufacturer settings screens that decide whether DataProxy is
  * allowed to keep running in the background. None of these can be toggled
- * programmatically — the OEM only exposes a settings activity the user has to
+ * programmatically, the OEM only exposes a settings activity the user has to
  * flip themselves. We do our best to deep-link to the right page and fall back
  * to the app-details screen when the vendor activity isn't resolvable.
  */
@@ -143,7 +143,7 @@ object OemHelper {
         Oem.Letv -> listOf(
             component("com.letv.android.letvsafe", "com.letv.android.letvsafe.AutobootManageActivity"),
         )
-        // Samsung has no exposed "auto-start" — best we can do is open the Battery section
+        // Samsung has no exposed "auto-start", best we can do is open the Battery section
         // of Device Care so the user can mark DataProxy as a "Never sleeping app".
         Oem.Samsung -> listOf(
             component("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryActivity"),
@@ -164,7 +164,7 @@ object OemHelper {
             component("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity"),
             component("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
         )
-        // On Samsung the per-app Battery page is reached via App info. Open that — user
+        // On Samsung the per-app Battery page is reached via App info. Open that, user
         // taps Battery → Allow background activity (or set to Unrestricted).
         Oem.Samsung -> listOf(appDetailsIntent(context))
         else -> listOf(appDetailsIntent(context))

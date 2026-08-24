@@ -148,7 +148,7 @@ fun AppNav(
             text = {
                 Text(
                     "DataProxy routes traffic through cellular only. " +
-                        "Turn on mobile data — Wi-Fi can stay on too — and tap the " +
+                        "Turn on mobile data (Wi-Fi can stay on too) and tap the " +
                         "power button again."
                 )
             },

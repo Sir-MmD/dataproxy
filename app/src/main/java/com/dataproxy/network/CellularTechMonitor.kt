@@ -16,14 +16,14 @@ import kotlinx.coroutines.launch
  * Polls TelephonyManager to surface the current mobile-data state and the
  * actual radio technology in use (2G / 3G / 4G / 5G).
  *
- * Reads via `READ_BASIC_PHONE_STATE` — a *normal* (install-time, no prompt)
+ * Reads via `READ_BASIC_PHONE_STATE`, a *normal* (install-time, no prompt)
  * permission introduced in API 33. On older devices the permission has no
  * effect and `getDataNetworkType()` throws / returns UNKNOWN; the monitor
  * surfaces [TechState.Unknown] in that case.
  *
  * Independent of our cellular [CellularNetworkProvider]: we want the header
  * to show the device's real tech whether or not the proxy has requested a
- * network. Polling is fine — tech changes are rare and 2 s lag is invisible.
+ * network. Polling is fine, tech changes are rare and 2 s lag is invisible.
  */
 class CellularTechMonitor(context: Context) {
 
@@ -95,7 +95,7 @@ class CellularTechMonitor(context: Context) {
     }
 
     /**
-     * Prefer the SIM's own carrier name (SPN) — it's the stable identity of the
+     * Prefer the SIM's own carrier name (SPN), it's the stable identity of the
      * user's carrier and doesn't flicker to a blank / transient value during
      * network re-registration the way the *registered-network* name can. Fall
      * back to the registered-network name only when the SIM name is blank.
