@@ -178,6 +178,7 @@ class ProxyService : Service() {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 },
                 authProvider = ::currentAuthConfig,
+                maxConnectionsProvider = ::currentMaxConnections,
             )
             server = srv
             srv.start()
@@ -385,6 +386,15 @@ class ProxyService : Service() {
         )
     }
 
+    /**
+     * Read the connection cap live, same reasoning as [currentAuthConfig]:
+     * [Socks5Server] calls this on every accept(), so raising or lowering it
+     * on the Listen screen takes effect immediately, no restart.
+     */
+    private fun currentMaxConnections(): Int =
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getInt(PREF_MAX_CONNECTIONS, Socks5Server.DEFAULT_MAX_CONNECTIONS)
+
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -414,6 +424,9 @@ class ProxyService : Service() {
         const val PREF_AUTH_ENABLED = "auth_enabled"
         const val PREF_AUTH_USERNAME = "auth_username"
         const val PREF_AUTH_PASSWORD = "auth_password"
+        // 0 means unlimited; see Socks5Server.DEFAULT_MAX_CONNECTIONS for the
+        // default applied when this key is absent.
+        const val PREF_MAX_CONNECTIONS = "max_connections"
         // Last-chosen listen address + port. Written by MainViewModel; read by
         // BootReceiver so an auto-start uses the same endpoint as the UI.
         const val PREF_BIND_ADDRESS = "bind_address"

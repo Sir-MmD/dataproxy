@@ -14,6 +14,7 @@ import com.dataproxy.network.CellularNetworkProvider
 import com.dataproxy.network.CellularTechMonitor
 import com.dataproxy.network.NetworkInterfaceLister
 import com.dataproxy.proxy.ConnectionRegistry
+import com.dataproxy.proxy.Socks5Server
 import com.dataproxy.proxy.SpeedSampler
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.theme.ThemeMode
@@ -75,6 +76,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         prefs.getString(ProxyService.PREF_AUTH_PASSWORD, "") ?: ""
     )
     val authPassword: StateFlow<String> = _authPassword.asStateFlow()
+
+    private val _maxConnections = MutableStateFlow(
+        prefs.getInt(ProxyService.PREF_MAX_CONNECTIONS, Socks5Server.DEFAULT_MAX_CONNECTIONS)
+    )
+    val maxConnections: StateFlow<Int> = _maxConnections.asStateFlow()
 
     private val _themeMode = MutableStateFlow(
         ThemeMode.fromKey(prefs.getString(KEY_THEME_MODE, null))
@@ -159,6 +165,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setAuthPassword(value: String) {
         _authPassword.value = value
         prefs.edit().putString(ProxyService.PREF_AUTH_PASSWORD, value).apply()
+    }
+
+    /** Clamped to >= 0. 0 means unlimited, same sentinel Socks5Server reads. */
+    fun setMaxConnections(value: Int) {
+        val clamped = value.coerceAtLeast(0)
+        _maxConnections.value = clamped
+        prefs.edit().putInt(ProxyService.PREF_MAX_CONNECTIONS, clamped).apply()
     }
 
     fun setAutoStartOnBoot(enabled: Boolean) {

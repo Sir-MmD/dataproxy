@@ -1,0 +1,51 @@
+name: Build debug APK
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # android-actions/setup-android@v3 shells out to `sdkmanager tools`,
+      # a package Google dropped from the SDK repository; that now fails
+      # outright before anything Android-related runs. ubuntu-latest already
+      # ships an SDK (ANDROID_HOME set, cmdline-tools present), so just
+      # accept its licenses and let AGP fetch platform-36 / build-tools on
+      # demand during the build, same as a local machine with SDK licenses
+      # already accepted.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+
+      # gradle/actions/setup-gradle@v4's own provisioning step fails here
+      # with no diagnostic output (just "process '/usr/bin/gradle' failed"),
+      # so install the exact version the project builds with (per CLAUDE.md)
+      # directly rather than fight the action's opaque failure.
+      - name: Install Gradle 8.10.2
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.10.2-bin.zip
+          unzip -q gradle-8.10.2-bin.zip -d "$HOME"
+          echo "$HOME/gradle-8.10.2/bin" >> "$GITHUB_PATH"
+
+      # gradle.properties pins org.gradle.java.home to the maintainer's own
+      # local JBR path (/opt/android-studio/jbr), which doesn't exist here.
+      # Override it on the command line rather than edit the shared file,
+      # command-line -D wins over gradle.properties and this only affects CI.
+      - name: Assemble debug APK
+        run: gradle :app:assembleDebug --no-daemon --console=plain -Dorg.gradle.java.home="$JAVA_HOME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dataproxy-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

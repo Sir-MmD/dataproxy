@@ -25,10 +25,10 @@ import java.util.concurrent.atomic.AtomicInteger
  * a [Socks5Connection] coroutine on the supervisor scope, so neither a single
  * failed conversation nor a transient accept() error kills the listener.
  *
- * Admission is capped at [MAX_CONNECTIONS], and [stop] force-closes every
- * conversation still in flight. Relay threads block in reads that
- * cancellation cannot reach, so nothing short of closing their sockets stops
- * traffic.
+ * Admission is capped at whatever [maxConnectionsProvider] returns (a value
+ * of 0 or less means unlimited), and [stop] force-closes every conversation
+ * still in flight. Relay threads block in reads that cancellation cannot
+ * reach, so nothing short of closing their sockets stops traffic.
  */
 class Socks5Server(
     val bindAddress: String,
@@ -37,12 +37,17 @@ class Socks5Server(
     val registry: ConnectionRegistry,
     private val onFatal: (Throwable) -> Unit,
     private val authProvider: () -> AuthConfig = { AuthConfig.Disabled },
+    // Read live rather than captured at construction, same reasoning as
+    // authProvider: a cap raised or lowered on the settings screen while the
+    // proxy is running takes effect on the very next accept() with no
+    // restart needed.
+    private val maxConnectionsProvider: () -> Int = { DEFAULT_MAX_CONNECTIONS },
 ) {
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Connections currently being handled; bounded by [MAX_CONNECTIONS]. */
+    /** Connections currently being handled; bounded by [maxConnectionsProvider]. */
     private val live = AtomicInteger(0)
 
     /**
@@ -127,8 +132,14 @@ class Socks5Server(
                     // pthread_create failed. Reject rather than block: blocking
                     // accept would just fill the 64-deep backlog and leave
                     // clients hanging with no SOCKS5 reply.
-                    if (live.get() >= MAX_CONNECTIONS) {
-                        Log.w(TAG, "at capacity ($MAX_CONNECTIONS), rejecting ${client.remoteSocketAddress}")
+                    //
+                    // cap <= 0 means unlimited, the user's own choice to trade
+                    // the OOM guard away for headroom above the default; skip
+                    // the check entirely rather than compare against a
+                    // sentinel that could theoretically collide with `live`.
+                    val cap = maxConnectionsProvider()
+                    if (cap > 0 && live.get() >= cap) {
+                        Log.w(TAG, "at capacity ($cap), rejecting ${client.remoteSocketAddress}")
                         runCatching { client.close() }
                         continue
                     }
@@ -233,15 +244,18 @@ class Socks5Server(
         private const val BACKLOG = 64
 
         /**
-         * Ceiling on simultaneously-handled connections.
+         * Default ceiling on simultaneously-handled connections, used when
+         * nothing else configures [maxConnectionsProvider] (tests, previews).
          *
          * Relay I/O runs on an unbounded cached thread pool, so this is what
          * bounds thread count: worst case ~2x this many relay threads for
          * CONNECT tunnels. 512 leaves generous headroom over the few-hundred
          * connections a whole-network tun2socks setup actually opens, while
-         * still capping the pathological case.
+         * still capping the pathological case. Whole-network setups routing
+         * more than that (larger LANs, several tun2socks peers) can raise it,
+         * or set it to 0 for no cap, from the Listen screen.
          */
-        private const val MAX_CONNECTIONS = 512
+        const val DEFAULT_MAX_CONNECTIONS = 512
 
         /** Backoff unit after a recoverable accept() error; scales with the failure run. */
         private const val ACCEPT_RETRY_DELAY_MS = 50L
