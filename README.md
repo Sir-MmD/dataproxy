@@ -42,9 +42,9 @@ the rest of the phone keeps using Wi-Fi normally.
 
 ## Install
 
-Current release: **v1.3**
+Current release: **v1.4**
 
-Grab `DataProxy-v1.3.apk` from
+Grab `DataProxy-v1.4.apk` from
 [Releases](https://github.com/Sir-MmD/dataproxy/releases/latest).
 Requires Android 8.0 or newer.
 

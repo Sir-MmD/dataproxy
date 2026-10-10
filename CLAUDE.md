@@ -4,8 +4,13 @@ A SOCKS5 proxy for Android that pins outbound traffic to the cellular network.
 Project directory is still `xlink/` (kept for git history); the Gradle project,
 Android package, and brand are all `DataProxy` / `com.dataproxy`.
 
-Latest released version is **v1.3** (versionCode 8; `versionName` is the bare
-string `"1.3"`, not `"1.3.0"`). It hardens the data path: stopping the proxy
+Latest released version is **v1.4** (versionCode 9; `versionName` is the bare
+string `"1.4"`, not `"1.4.0"`). It makes the connection admission cap
+configurable from the Home Active tile (0 = unlimited, contributed by @NickLD
+in PR #3) and is the first release signed with the **new signing key** (see
+Release process).
+
+v1.3 (versionCode 8) hardened the data path: stopping the proxy
 now force-closes live tunnels, the accept loop survives transient errors, there
 is a 512-connection admission cap, auth fails closed when enabled with blank
 credentials, the UDP relay only accepts datagrams from its own control peer,
@@ -29,15 +34,15 @@ indicator, and overhauled the permissions dialog.
 
 ## Build & run
 
-The user has Android Studio installed at `/opt/android-studio` (bundled JBR
-Java 21) and the SDK at `/home/mmd/apps/Android/sdk` (only `android-36` /
+The user has Android Studio installed at `/opt/android-studio` and the SDK at `/home/mmd/apps/Android/sdk` (only `android-36` /
 `build-tools 36.x` are present, **do not** drop `compileSdk` back to 35).
 There's a downloaded Gradle at `/home/mmd/apps/gradle-8.10.2/bin/gradle`.
 
 ```bash
 # Release APK (the one shipped to GitHub Releases)
+ANDROID_HOME=/home/mmd/apps/Android/sdk \
 /home/mmd/apps/gradle-8.10.2/bin/gradle :app:assembleRelease \
-  --no-daemon --console=plain 2>&1 | grep -E "^(e:|FAIL|BUILD)" | tail -15
+  --no-daemon --console=plain -Dorg.gradle.java.home=/home/mmd/apps/jdk-21 2>&1 | grep -E "^(e:|FAIL|BUILD)" | tail -15
 
 # Install on the connected Samsung device
 cp app/build/outputs/apk/release/app-release.apk /tmp/DataProxy-vX.Y.Z.apk
@@ -54,9 +59,13 @@ curl --socks5-hostname 127.0.0.1:1080 -s -o /dev/null \
   -w 'http=%{http_code} time=%{time_total}s\n' --max-time 25 https://time.ir
 ```
 
-`org.gradle.java.home=/opt/android-studio/jbr` is set in `gradle.properties`
-so command-line builds pick up the JBR automatically (system Java is 26,
-which Gradle 8.10 doesn't officially support, it works but warns).
+`gradle.properties` still pins `org.gradle.java.home=/opt/android-studio/jbr`,
+but Android Studio's bundled JBR is now Java 25, which Gradle 8.10.2 cannot
+run on (the build fails with a bare "25.0.3" error). Override it with
+`-Dorg.gradle.java.home=/home/mmd/apps/jdk-21` as above. The SDK was
+reinstalled from the command-line tools in Oct 2026 and has no
+`local.properties`, so `ANDROID_HOME` must be set. `adb` is also at
+`/usr/bin/adb`.
 
 If multiple ADB devices show up (e.g. an emulator + the phone), pass
 `-s R5CY50CMNWM`, that's the physical Samsung the user actually tests on.
@@ -91,8 +100,11 @@ keeps the existing version, the shared signing key means `adb install -r`
 upgrades in place regardless of version code.
 
 The signing keystore is `app/keystore/dataproxy-release.jks` (gitignored,
-password `dataproxy`). Same key has been used for every release, installs
-upgrade in place. If the keystore file is missing, the build still succeeds
+password `dataproxy`, alias `dataproxy`). The original key used up to v1.3 was
+lost, so **v1.4 is signed with a new key** (cert SHA-256
+`4aaed2a1f1677505b3c9ef4dba886734fa2aa4c9afbd6cacbda1e67929687ff1`). Moving
+from v1.3 or earlier to v1.4 needs an uninstall first; v1.4 onward upgrades in
+place as long as this keystore is kept. Back it up. If the keystore file is missing, the build still succeeds
 with an unsigned APK (signing config is conditional in `build.gradle.kts`).
 
 ## Architecture invariants

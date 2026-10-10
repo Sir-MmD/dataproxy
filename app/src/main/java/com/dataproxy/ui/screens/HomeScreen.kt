@@ -430,7 +430,7 @@ private fun Footer() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = "v1.3",
+                text = "v1.4",
                 color = TextMuted,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = FontFamily.Monospace,
