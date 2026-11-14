@@ -15,6 +15,10 @@ import androidx.core.app.NotificationCompat
 import com.dataproxy.MainActivity
 import com.dataproxy.R
 import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.network.ProxyNetworkProvider
+import com.dataproxy.network.AndroidProxyNetworkProvider
+import com.dataproxy.network.NetworkMode
+import com.dataproxy.proxy.HttpProxyServer
 import com.dataproxy.proxy.AuthConfig
 import com.dataproxy.proxy.ConnectionRegistry
 import com.dataproxy.proxy.Socks5Server
@@ -68,6 +72,9 @@ class ProxyService : Service() {
     private val sampler = SpeedSampler()
 
     private var server: Socks5Server? = null
+    private var httpServer: HttpProxyServer? = null
+    private var network: ProxyNetworkProvider? = null
+    private var selectedMode: NetworkMode = NetworkMode.CELLULAR
     private var startJob: Job? = null
     private var publishJob: Job? = null
     private var cellularWatchJob: Job? = null
@@ -129,83 +136,105 @@ class ProxyService : Service() {
     // ----------------------------------------------------------------- control
 
     fun startProxy(bindAddress: String, port: Int) {
-        if (_state.value is State.Running || _state.value is State.Starting) return
+        if (_state.value is State.Running || _state.value is State.Starting ||
+            _state.value is State.Paused) return
 
-        // Clear-state + kill: wipe everything from any previous cycle before
-        // we touch cellular again. Idempotent on a clean slate.
         fullCleanup()
         val myCycle = cycleId.get()
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val mode = NetworkMode.fromKey(prefs.getString(PREF_NETWORK_MODE, null))
+        val httpEnabled = prefs.getBoolean(PREF_HTTP_ENABLED, false)
+        val httpPort = prefs.getInt(PREF_HTTP_PORT, DEFAULT_HTTP_PORT)
 
+        if (port !in 1..65535 || (httpEnabled && (httpPort !in 1..65535 || httpPort == port))) {
+            _state.value = State.Error("Invalid or duplicate proxy ports", State.ErrorKind.BindFailed)
+            return
+        }
+
+        selectedMode = mode
         _state.value = State.Starting(bindAddress, port)
         startForegroundNow(bindAddress, port)
-
-        cellular.start()
+        val selected = AndroidProxyNetworkProvider(applicationContext, mode, cellular)
+        network = selected
+        try {
+            selected.start()
+        } catch (e: Exception) {
+            _state.value = State.Error("Cannot request outbound network: " +
+                e.javaClass.simpleName)
+            fullCleanup()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            return
+        }
         startJob = scope.launch {
-            val net = cellular.awaitAvailable(15_000L)
-            if (_state.value !is State.Starting) return@launch
+            val net = selected.awaitAvailable(15_000L)
+            if (cycleId.get() != myCycle || _state.value !is State.Starting) return@launch
             if (net == null) {
                 _state.value = State.Error(
-                    message = "Mobile data is unavailable. Turn it on to start the proxy.",
-                    kind = State.ErrorKind.MobileDataUnavailable,
+                    message = when (mode) {
+                        NetworkMode.CELLULAR -> "Mobile data is unavailable. Turn it on to start the proxy."
+                        NetworkMode.WIFI -> "Wi-Fi network is unavailable."
+                        NetworkMode.AUTO -> "Android default network is unavailable."
+                    },
+                    kind = if (mode == NetworkMode.CELLULAR) State.ErrorKind.MobileDataUnavailable
+                    else State.ErrorKind.Generic,
                 )
                 fullCleanup()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 return@launch
             }
-            val srv = Socks5Server(
-                bindAddress = bindAddress,
-                port = port,
-                cellular = cellular,
-                registry = registry,
-                onFatal = { e ->
-                    if (cycleId.get() != myCycle) return@Socks5Server
-                    // The listener can die after a successful bind (the accept
-                    // loop giving up), so only report BindFailed when the bind
-                    // is actually what failed, otherwise the UI blames the
-                    // listen address for something unrelated.
+            val fatal: (Throwable) -> Unit = { e ->
+                if (cycleId.get() == myCycle) {
                     _state.value = State.Error(
                         message = e.message ?: "Listener failed",
-                        // Keyed on Starting, not Running: a bind failure is only
-                        // observable while starting. Testing for Running would
-                        // send the Paused case (cellular dropped, listener
-                        // still bound, accept loop then dies) down the
-                        // BindFailed branch and blame an address that bound
-                        // successfully long ago.
                         kind = if (_state.value is State.Starting) State.ErrorKind.BindFailed
                         else State.ErrorKind.Generic,
                     )
                     fullCleanup()
                     stopForeground(STOP_FOREGROUND_REMOVE)
-                },
+                }
+            }
+            val srv = Socks5Server(
+                bindAddress = bindAddress,
+                port = port,
+                cellular = selected,
+                registry = registry,
+                onFatal = fatal,
                 authProvider = ::currentAuthConfig,
                 maxConnectionsProvider = ::currentMaxConnections,
             )
             server = srv
             srv.start()
-            // Everything from the staleness check above to here is
-            // non-suspending, so cancelling startJob cannot stop it. A Stop
-            // landing in that window ran fullCleanup() while srv.running was
-            // still false, so server?.stop() early-returned and then nulled
-            // the field, leaving a bound, accepting listener on the port with
-            // nothing holding a reference to it. Only a force-stop cleared it,
-            // and tapping Stop during the 15s cellular wait is the ordinary
-            // way to hit it. Re-check the cycle now that the outcome is known.
-            if (cycleId.get() != myCycle) {
-                // Deliberately does NOT null `server`: this coroutine is the
-                // stale one, so a write here could land after a successor has
-                // already stored its own instance and would orphan it,
-                // exactly the bug being fixed. The next fullCleanup() stops
-                // this (a no-op once stopped) and clears the field safely.
+            if (cycleId.get() != myCycle || !srv.running) {
                 srv.stop()
                 return@launch
             }
-            if (srv.running) {
-                _state.value = State.Running(bindAddress, port)
-                acquireWakeLock()
-                startSampling()
-                startCellularWatch(bindAddress, port)
-                updateNotification(bindAddress, port, totals.value, rates.value)
+            if (httpEnabled) {
+                val http = HttpProxyServer(
+                    bindAddress = bindAddress,
+                    port = httpPort,
+                    network = selected,
+                    registry = registry,
+                    onFatal = fatal,
+                    authProvider = ::currentAuthConfig,
+                    maxConnectionsProvider = ::currentMaxConnections,
+                )
+                httpServer = http
+                http.start()
+                if (cycleId.get() != myCycle || !http.running) {
+                    http.stop()
+                    return@launch
+                }
             }
+            if (cycleId.get() != myCycle) {
+                srv.stop()
+                httpServer?.stop()
+                return@launch
+            }
+            _state.value = State.Running(bindAddress, port)
+            acquireWakeLock()
+            startSampling()
+            startNetworkWatch(bindAddress, port, selected, mode)
+            updateNotification(bindAddress, port, totals.value, rates.value)
         }
     }
 
@@ -225,7 +254,9 @@ class ProxyService : Service() {
         startJob?.cancel(); startJob = null
         publishJob?.cancel(); publishJob = null
         cellularWatchJob?.cancel(); cellularWatchJob = null
+        httpServer?.stop(); httpServer = null
         server?.stop(); server = null
+        network?.stop(); network = null
         cellular.stop()
         registry.reset()
         sampler.reset()
@@ -237,25 +268,29 @@ class ProxyService : Service() {
      * Drop → Paused (listener stays, new connects fail until data is back).
      * Recovery → back to Running.
      */
-    private fun startCellularWatch(addr: String, port: Int) {
+    private fun startNetworkWatch(
+        addr: String, port: Int, selected: ProxyNetworkProvider, mode: NetworkMode,
+    ) {
         cellularWatchJob?.cancel()
         cellularWatchJob = scope.launch {
-            cellular.state.collect { cs ->
+            selected.state.collect { cs ->
                 val cur = _state.value
                 when (cs) {
-                    is CellularNetworkProvider.State.Available -> {
+                    is ProxyNetworkProvider.State.Available -> {
                         if (cur is State.Paused) {
                             _state.value = State.Running(addr, port)
                             updateNotification(addr, port, totals.value, rates.value)
                         }
                     }
-                    is CellularNetworkProvider.State.Lost,
-                    is CellularNetworkProvider.State.Unavailable -> {
+                    ProxyNetworkProvider.State.Lost,
+                    ProxyNetworkProvider.State.Unavailable -> {
                         if (cur is State.Running) {
-                            _state.value = State.Paused(
-                                addr, port,
-                                "Waiting for mobile data",
-                            )
+                            val reason = when (mode) {
+                                NetworkMode.CELLULAR -> "Waiting for mobile data"
+                                NetworkMode.WIFI -> "Waiting for Wi-Fi"
+                                NetworkMode.AUTO -> "Waiting for Android default network"
+                            }
+                            _state.value = State.Paused(addr, port, reason)
                             updateNotification(addr, port, totals.value, rates.value)
                         }
                     }
@@ -332,8 +367,13 @@ class ProxyService : Service() {
         val rateUnit = RateUnit.fromKey(
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_RATE_UNIT, null)
         )
-        val sub = if (isPaused) "Waiting for mobile data"
-        else "${totals.active} conn  ·  ↑${rateText(rates.upBps, rateUnit)}  ↓${rateText(rates.downBps, rateUnit)}"
+        val networkName = when (selectedMode) {
+            NetworkMode.CELLULAR -> "SIM/eSIM"
+            NetworkMode.WIFI -> "Wi-Fi"
+            NetworkMode.AUTO -> "Auto"
+        }
+        val sub = if (isPaused) (_state.value as? State.Paused)?.reason ?: "Network unavailable"
+        else "$networkName · ${totals.active} conn · ↑${rateText(rates.upBps, rateUnit)} ↓${rateText(rates.downBps, rateUnit)}"
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_proxy)
             .setContentTitle(title)
@@ -431,6 +471,10 @@ class ProxyService : Service() {
         // BootReceiver so an auto-start uses the same endpoint as the UI.
         const val PREF_BIND_ADDRESS = "bind_address"
         const val PREF_PORT = "port"
+        const val PREF_HTTP_PORT = "http_port"
+        const val PREF_HTTP_ENABLED = "http_enabled"
+        const val PREF_NETWORK_MODE = "network_mode"
+        const val DEFAULT_HTTP_PORT = 8080
         // Written by MainViewModel; read here fresh on every notification
         // rebuild so a toggle made while the proxy is running takes effect
         // on the next update without a restart.

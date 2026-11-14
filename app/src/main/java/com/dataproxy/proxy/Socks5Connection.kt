@@ -1,7 +1,7 @@
 package com.dataproxy.proxy
 
 import android.util.Log
-import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.network.ProxyNetworkProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -25,7 +25,7 @@ import java.net.Socket
  */
 class Socks5Connection(
     private val clientSocket: Socket,
-    private val cellular: CellularNetworkProvider,
+    private val cellular: ProxyNetworkProvider,
     private val registry: ConnectionRegistry,
     private val scope: CoroutineScope,
     private val authProvider: () -> AuthConfig = { AuthConfig.Disabled },

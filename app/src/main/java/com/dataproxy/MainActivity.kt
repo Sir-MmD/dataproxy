@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.dataproxy.network.CellularTechMonitor
+import com.dataproxy.network.NetworkMode
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.screens.AppNav
 import com.dataproxy.ui.screens.Tab
@@ -211,7 +212,8 @@ class MainActivity : ComponentActivity() {
             viewModel.stop()
             return
         }
-        if (viewModel.cellularTech.value is CellularTechMonitor.TechState.DataOff) {
+        if (viewModel.networkMode.value == NetworkMode.CELLULAR &&
+            viewModel.cellularTech.value is CellularTechMonitor.TechState.DataOff) {
             showMobileData()
             return
         }

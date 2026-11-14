@@ -11,6 +11,7 @@ import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.network.NetworkMode
 import com.dataproxy.network.CellularTechMonitor
 import com.dataproxy.network.NetworkInterfaceLister
 import com.dataproxy.proxy.ConnectionRegistry
@@ -39,6 +40,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _port = MutableStateFlow(prefs.getInt(ProxyService.PREF_PORT, ProxyService.DEFAULT_PORT))
     val port: StateFlow<Int> = _port.asStateFlow()
+
+    private val _httpPort = MutableStateFlow(
+        prefs.getInt(ProxyService.PREF_HTTP_PORT, ProxyService.DEFAULT_HTTP_PORT)
+    )
+    val httpPort: StateFlow<Int> = _httpPort.asStateFlow()
+
+    private val _httpEnabled = MutableStateFlow(
+        prefs.getBoolean(ProxyService.PREF_HTTP_ENABLED, false)
+    )
+    val httpEnabled: StateFlow<Boolean> = _httpEnabled.asStateFlow()
+
+    private val _networkMode = MutableStateFlow(
+        NetworkMode.fromKey(prefs.getString(ProxyService.PREF_NETWORK_MODE, null))
+    )
+    val networkMode: StateFlow<NetworkMode> = _networkMode.asStateFlow()
 
     private val _interfaces = MutableStateFlow<List<NetworkInterfaceLister.Candidate>>(emptyList())
     val interfaces: StateFlow<List<NetworkInterfaceLister.Candidate>> = _interfaces.asStateFlow()
@@ -142,14 +158,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _interfaces.value = NetworkInterfaceLister.list()
     }
 
+    private fun settingsUnlocked(): Boolean =
+        _serviceState.value is ProxyService.State.Stopped ||
+            _serviceState.value is ProxyService.State.Error
+
     fun selectBindAddress(addr: String) {
+        if (!settingsUnlocked()) return
         _bindAddress.value = addr
         prefs.edit().putString(ProxyService.PREF_BIND_ADDRESS, addr).apply()
     }
 
     fun selectPort(p: Int) {
+        if (!settingsUnlocked() || p !in 1..65535 || (_httpEnabled.value && p == _httpPort.value)) return
         _port.value = p
         prefs.edit().putInt(ProxyService.PREF_PORT, p).apply()
+    }
+
+    fun selectHttpPort(p: Int) {
+        if (!settingsUnlocked() || p !in 1..65535 || p == _port.value) return
+        _httpPort.value = p
+        prefs.edit().putInt(ProxyService.PREF_HTTP_PORT, p).apply()
+    }
+
+    fun setHttpEnabled(enabled: Boolean) {
+        if (!settingsUnlocked() || (enabled && _port.value == _httpPort.value)) return
+        _httpEnabled.value = enabled
+        prefs.edit().putBoolean(ProxyService.PREF_HTTP_ENABLED, enabled).apply()
+    }
+
+    fun selectNetworkMode(mode: NetworkMode) {
+        if (!settingsUnlocked()) return
+        _networkMode.value = mode
+        prefs.edit().putString(ProxyService.PREF_NETWORK_MODE, mode.key).apply()
     }
 
     fun setAuthEnabled(enabled: Boolean) {
