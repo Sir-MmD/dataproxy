@@ -31,6 +31,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
+import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dataproxy.network.NetworkInterfaceLister
+import com.dataproxy.network.NetworkMode
 import com.dataproxy.service.ProxyService
 import com.dataproxy.ui.components.Pill
 import com.dataproxy.ui.theme.Accent
@@ -71,6 +74,9 @@ fun ListenAddressScreen(
     val candidates by viewModel.interfaces.collectAsStateWithLifecycle()
     val bindAddress by viewModel.bindAddress.collectAsStateWithLifecycle()
     val port by viewModel.port.collectAsStateWithLifecycle()
+    val httpPort by viewModel.httpPort.collectAsStateWithLifecycle()
+    val httpEnabled by viewModel.httpEnabled.collectAsStateWithLifecycle()
+    val networkMode by viewModel.networkMode.collectAsStateWithLifecycle()
     val serviceState by viewModel.serviceState.collectAsStateWithLifecycle()
 
     val canEdit = when (serviceState) {
@@ -85,7 +91,7 @@ fun ListenAddressScreen(
             .padding(top = 4.dp, bottom = 12.dp),
     ) {
         TopBar(
-            title = "Listen address",
+            title = "Proxy settings",
             onBack = onBack,
             action = {
                 IconButton(onClick = { viewModel.refreshInterfaces() }, enabled = canEdit) {
@@ -101,7 +107,7 @@ fun ListenAddressScreen(
         Spacer(Modifier.height(8.dp))
         if (!canEdit) {
             HintBanner(
-                "Stop the proxy to change the listen address or port."
+                "Stop the proxy to change ports, listener settings or outbound network."
             )
             Spacer(Modifier.height(8.dp))
         }
@@ -109,8 +115,10 @@ fun ListenAddressScreen(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Text("Listen address", color = TextSecondary,
+                style = MaterialTheme.typography.titleSmall)
             candidates.forEach { cand ->
                 AddressRow(
                     candidate = cand,
@@ -120,19 +128,79 @@ fun ListenAddressScreen(
                 )
             }
             if (candidates.isEmpty()) {
-                Text(
-                    text = "No interfaces enumerated",
-                    color = TextMuted,
+                Text("No interfaces enumerated", color = TextMuted,
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Text("SOCKS5 proxy", color = TextPrimary,
+                style = MaterialTheme.typography.titleMedium)
+            PortField(
+                port = port,
+                label = "SOCKS5 port",
+                enabled = canEdit,
+                onChange = viewModel::selectPort,
+            )
+
+            Spacer(Modifier.height(4.dp))
+            Text("HTTP proxy", color = TextPrimary,
+                style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Enable HTTP proxy", color = TextPrimary,
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f))
+                Switch(
+                    checked = httpEnabled,
+                    onCheckedChange = viewModel::setHttpEnabled,
+                    enabled = canEdit,
                 )
             }
+            if (httpEnabled) {
+                PortField(
+                    port = httpPort,
+                    label = "HTTP port",
+                    enabled = canEdit,
+                    onChange = viewModel::selectHttpPort,
+                )
+                if (port == httpPort) {
+                    HintBanner("HTTP and SOCKS5 ports must be different.", alert = true)
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Text("Outbound network", color = TextPrimary,
+                style = MaterialTheme.typography.titleMedium)
+            Text("Both proxy protocols use the selected network for outbound connections.",
+                color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            for (mode in NetworkMode.entries) {
+                val name = when (mode) {
+                    NetworkMode.CELLULAR -> "SIM / eSIM"
+                    NetworkMode.WIFI -> "Wi-Fi"
+                    NetworkMode.AUTO -> "Auto (Android default)"
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (mode == networkMode) Accent.copy(alpha = 0.08f) else SurfaceMid)
+                        .clickable(enabled = canEdit) { viewModel.selectNetworkMode(mode) }
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = mode == networkMode,
+                        onClick = { viewModel.selectNetworkMode(mode) },
+                        enabled = canEdit,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(name, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
         }
-        Spacer(Modifier.height(10.dp))
-        PortField(
-            port = port,
-            enabled = canEdit,
-            onChange = viewModel::selectPort,
-        )
     }
 }
 
@@ -252,6 +320,7 @@ private fun AddressRow(
 @Composable
 private fun PortField(
     port: Int,
+    label: String,
     enabled: Boolean,
     onChange: (Int) -> Unit,
 ) {
@@ -264,7 +333,7 @@ private fun PortField(
             text = v.filter { it.isDigit() }.take(5)
             text.toIntOrNull()?.takeIf { it in 1..65535 }?.let(onChange)
         },
-        label = { Text("Port") },
+        label = { Text(label) },
         singleLine = true,
         enabled = enabled,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

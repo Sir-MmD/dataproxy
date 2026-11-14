@@ -74,7 +74,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-controlled SOCKS5 proxy that pins traffic to the cellular network; the service must stay alive to hold the cellular Network handle and keep the listener accepting client connections." />
+                android:value="User-controlled SOCKS5 and HTTP proxy with selectable Wi-Fi, cellular or Android default outbound network; foreground operation maintains listeners and network handles." />
         </service>
 
         <receiver

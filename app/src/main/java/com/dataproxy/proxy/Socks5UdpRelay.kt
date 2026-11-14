@@ -1,7 +1,7 @@
 package com.dataproxy.proxy
 
 import android.util.Log
-import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.network.ProxyNetworkProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * when the proxy stops, or when either loop ends for any reason.
  */
 class Socks5UdpRelay(
-    private val cellular: CellularNetworkProvider,
+    private val cellular: ProxyNetworkProvider,
     private val listenAddress: InetAddress,
     private val clientAddress: InetAddress,
     private val scope: CoroutineScope,

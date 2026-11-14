@@ -1,7 +1,7 @@
 package com.dataproxy.proxy
 
 import android.util.Log
-import com.dataproxy.network.CellularNetworkProvider
+import com.dataproxy.network.ProxyNetworkProvider
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class Socks5Server(
     val bindAddress: String,
     val port: Int,
-    private val cellular: CellularNetworkProvider,
+    private val cellular: ProxyNetworkProvider,
     val registry: ConnectionRegistry,
     private val onFatal: (Throwable) -> Unit,
     private val authProvider: () -> AuthConfig = { AuthConfig.Disabled },
@@ -73,8 +73,6 @@ class Socks5Server(
 
     fun start() {
         if (running) return
-        registry.reset()
-
         val socket = try {
             ServerSocket().apply {
                 reuseAddress = true
